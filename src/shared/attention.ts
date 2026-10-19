@@ -1,4 +1,5 @@
 import type { Task } from './types'
+import { t as tr } from './i18n'
 
 export type AttentionKind = 'select' | 'approve' | 'merge' | 'failed'
 export interface Attention {
@@ -16,15 +17,15 @@ export function attention(t: Task): Attention | null {
   const bon = t.mode === 'best-of-n'
   switch (t.status) {
     case 'awaiting-approval':
-      return bon ? { kind: 'select', label: '결과 선택 대기', stamp } : { kind: 'approve', label: '머지 승인 대기', stamp }
+      return bon ? { kind: 'select', label: tr('결과 선택 대기'), stamp } : { kind: 'approve', label: tr('머지 승인 대기'), stamp }
     case 'ready-to-merge':
-      return { kind: 'merge', label: '머지 대기', stamp }
+      return { kind: 'merge', label: tr('머지 대기'), stamp }
     case 'created':
       // pipeline between stages: the next stage needs a human click. A brand-new task is not "waiting".
-      return !bon && t.stages.some((s) => s.status === 'done') ? { kind: 'approve', label: '다음 단계 승인 대기', stamp } : null
+      return !bon && t.stages.some((s) => s.status === 'done') ? { kind: 'approve', label: tr('다음 단계 승인 대기'), stamp } : null
     case 'failed':
       // a user-cancelled run also ends as 'failed'; only a real failure/interruption is worth interrupting for
-      return units(t).some((u) => u.status === 'failed' || u.status === 'interrupted') ? { kind: 'failed', label: '실패', stamp } : null
+      return units(t).some((u) => u.status === 'failed' || u.status === 'interrupted') ? { kind: 'failed', label: tr('실패'), stamp } : null
     default:
       return null
   }
@@ -36,10 +37,10 @@ export function progress(t: Task): string | null {
     const s = t.slots ?? []
     if (s.length === 0) return null
     const done = s.filter((x) => x.status === 'done' || x.status === 'failed').length
-    return `Best-of-N · 슬롯 ${done}/${s.length} 종료`
+    return tr('Best-of-N · 슬롯 {done}/{total} 종료', { done, total: s.length })
   }
   const done = t.stages.filter((s) => s.status === 'done').length
-  return t.stages.length ? `파이프라인 · ${done}/${t.stages.length} 단계` : null
+  return t.stages.length ? tr('파이프라인 · {done}/{total} 단계', { done, total: t.stages.length }) : null
 }
 
 export const attentionKey = (t: Task, a: Attention) => `${t.id}:${a.kind}:${a.stamp}`

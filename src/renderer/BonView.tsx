@@ -4,16 +4,14 @@ import { slotDigest } from '../shared/planner'
 import { slotWarning } from '../shared/slot'
 import { diffTotals, parseDiff } from '../shared/diff'
 import { DiffView } from './DiffView'
+import { t as tr } from '../shared/i18n'
+import { statusLabel, testLabel } from '../shared/labels'
 
 const api = (): Api => (window as unknown as { api: Api }).api
 const AGENT_LABEL = { claude: 'Claude Code', codex: 'Codex' } as const
-const STATUS_LABEL: Record<string, string> = {
-  pending: '대기', running: '실행 중', done: '완료', failed: '실패', interrupted: '중단됨', cancelled: '취소됨'
-}
-const TEST_LABEL: Record<string, string> = { pass: 'PASS', fail: 'FAIL', timeout: '타임아웃(FAIL)', error: '실행 오류(FAIL)', none: '테스트 없음' }
 
 const QUEUE_NOTE_MAX = 4000 // keep in sync with src/main/bestofn.ts
-const TAB_LABEL ={ diff: 'diff', tests: '테스트', result: '요약', log: '로그' } as const
+const tabLabel = (k: 'diff' | 'tests' | 'result' | 'log') => ({ diff: 'diff', tests: tr('테스트'), result: tr('요약'), log: tr('로그') }[k])
 
 type Run =(fn: () => Promise<AppState>) => Promise<void>
 const cleanErr = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -29,16 +27,16 @@ export function BonView({ task, live, run, onPlan }: { task: Task; live: Record<
       <div className="actions">
         {canRun && (
           <button className="btn primary" onClick={() => run(() => api().runNext(task.id))}>
-            {slots.some((s) => s.status !== 'pending') ? '다시 실행' : '실행 승인'}: {slots.length}개 슬롯 동시 구현
+            {slots.some((s) => s.status !== 'pending') ? tr('다시 실행') : tr('실행 승인')}: {tr('{n}개 슬롯 동시 구현', { n: slots.length })}
           </button>
         )}
-        {running && <button className="btn" onClick={() => run(() => api().cancel(task.id))}>모두 중지</button>}
+        {running && <button className="btn" onClick={() => run(() => api().cancel(task.id))}>{tr('모두 중지')}</button>}
         {!['merged', 'discarded'].includes(task.status) && !running && (
-          <button className="btn danger" onClick={() => confirm('모든 슬롯의 worktree와 브랜치를 삭제합니다. 되돌릴 수 없습니다.') && run(() => api().discard(task.id))}>전체 폐기</button>
+          <button className="btn danger" onClick={() => confirm(tr('모든 슬롯의 worktree와 브랜치를 삭제합니다. 되돌릴 수 없습니다.')) && run(() => api().discard(task.id))}>{tr('전체 폐기')}</button>
         )}
       </div>
-      {canPick && <div className="muted small">각 슬롯의 diff와 테스트 결과를 비교한 뒤 하나를 선택하세요. 선택한 슬롯이 머지되고 나머지는 삭제됩니다.</div>}
-      {task.status === 'merged' && <div className="muted small">선택된 슬롯이 머지되었고 나머지 슬롯은 정리되었습니다.</div>}
+      {canPick && <div className="muted small">{tr('각 슬롯의 diff와 테스트 결과를 비교한 뒤 하나를 선택하세요. 선택한 슬롯이 머지되고 나머지는 삭제됩니다.')}</div>}
+      {task.status === 'merged' && <div className="muted small">{tr('선택된 슬롯이 머지되었고 나머지 슬롯은 정리되었습니다.')}</div>}
       <BonCompare task={task} diffs={diffs} />
       <div className="bon-grid" style={{ gridTemplateColumns: `repeat(${slots.length}, minmax(0, 1fr))` }}>
         {slots.map((s, i) => (
@@ -72,7 +70,7 @@ function useSlotDiffs(task: Task): Record<string, string> {
   return diffs
 }
 
-const fmtSec = (s: Slot) => (s.startedAt && s.endedAt ? `${Math.round((s.endedAt - s.startedAt) / 1000)}초` : '-')
+const fmtSec = (s: Slot) => (s.startedAt && s.endedAt ? tr('{n}초', { n: Math.round((s.endedAt - s.startedAt) / 1000) }) : '-')
 
 /** Side-by-side facts for the slots, plus which slot touched which file, so differences stand out before picking one. */
 function BonCompare({ task, diffs }: { task: Task; diffs: Record<string, string> }) {
@@ -107,23 +105,23 @@ function BonCompare({ task, diffs }: { task: Task; diffs: Record<string, string>
 
   return (
     <details className="bon-cmp" open>
-      <summary>슬롯 비교</summary>
+      <summary>{tr('슬롯 비교')}</summary>
       <table className="cmp-table">
-        <thead><tr><th>슬롯</th><th>상태</th><th>테스트</th><th className="num">파일</th><th className="num">+</th><th className="num">−</th><th className="num">시간</th><th>비고</th></tr></thead>
+        <thead><tr><th>{tr('슬롯')}</th><th>{tr('상태')}</th><th>{tr('테스트')}</th><th className="num">{tr('파일')}</th><th className="num">+</th><th className="num">−</th><th className="num">{tr('시간')}</th><th>{tr('비고')}</th></tr></thead>
         <tbody>
           {visible.map((r) => {
             const t = r.s.testResult
             const w = slotWarning(r.s)
             return (
               <tr key={r.s.id} className={task.selectedSlot === r.s.id ? 'chosen' : ''}>
-                <td>슬롯 {r.i + 1} <span className="muted">{AGENT_LABEL[r.s.agent]}</span></td>
-                <td>{STATUS_LABEL[r.s.status]}</td>
-                <td>{t ? <span className={'tres ' + t.status}>{TEST_LABEL[t.status]}{t.total !== undefined ? ` ${t.passed ?? '?'}/${t.total}` : ''}</span> : <span className="muted">미실행</span>}</td>
+                <td>{tr('슬롯 {n}', { n: r.i + 1 })} <span className="muted">{AGENT_LABEL[r.s.agent]}</span></td>
+                <td>{statusLabel(r.s.status)}</td>
+                <td>{t ? <span className={'tres ' + t.status}>{testLabel(t.status)}{t.total !== undefined ? ` ${t.passed ?? '?'}/${t.total}` : ''}</span> : <span className="muted">{tr('미실행')}</span>}</td>
                 <td className="num">{r.tot ? r.tot.files : r.loading ? '…' : '-'}</td>
-                <td className="num">{r.tot ? <span className="ok">+{r.tot.adds}</span> : '-'}{smallest === r.s.id && <span className="cmp-best">최소 변경</span>}</td>
+                <td className="num">{r.tot ? <span className="ok">+{r.tot.adds}</span> : '-'}{smallest === r.s.id && <span className="cmp-best">{tr('최소 변경')}</span>}</td>
                 <td className="num">{r.tot ? <span className="bad">−{r.tot.dels}</span> : '-'}</td>
-                <td className="num">{fmtSec(r.s)}{fastest === r.s.id && <span className="cmp-best">최단</span>}</td>
-                <td className="small">{r.error ? <span className="bad">diff를 읽지 못함</span> : w ? <span className="bad" title={w}>⚠ {w}</span> : ''}</td>
+                <td className="num">{fmtSec(r.s)}{fastest === r.s.id && <span className="cmp-best">{tr('최단')}</span>}</td>
+                <td className="small">{r.error ? <span className="bad">{tr('diff를 읽지 못함')}</span> : w ? <span className="bad" title={w}>⚠ {w}</span> : ''}</td>
               </tr>
             )
           })}
@@ -131,15 +129,15 @@ function BonCompare({ task, diffs }: { task: Task; diffs: Record<string, string>
       </table>
       {paths.length > 0 && (
         <details className="cmp-files" open={paths.length <= 8}>
-          <summary className="small muted">슬롯별 변경 파일 {paths.length}개</summary>
+          <summary className="small muted">{tr('슬롯별 변경 파일 {n}개', { n: paths.length })}</summary>
           <table className="cmp-table">
-            <thead><tr><th>파일</th>{visible.map((r) => <th key={r.s.id} className="num">슬롯 {r.i + 1}</th>)}</tr></thead>
+            <thead><tr><th>{tr('파일')}</th>{visible.map((r) => <th key={r.s.id} className="num">{tr('슬롯 {n}', { n: r.i + 1 })}</th>)}</tr></thead>
             <tbody>
               {paths.map((p) => {
                 const m = matrix.get(p)!
                 return (
                   <tr key={p}>
-                    <td className="path">{p}{visible.length > 1 && m.size === 1 && <span className="cmp-best cmp-only">1개 슬롯만</span>}</td>
+                    <td className="path">{p}{visible.length > 1 && m.size === 1 && <span className="cmp-best cmp-only">{tr('1개 슬롯만')}</span>}</td>
                     {visible.map((r) => {
                       const c = m.get(r.i)
                       return <td key={r.s.id} className="num cmp-mark">{c ? <><span className="ok">+{c.adds}</span> <span className="bad">−{c.dels}</span></> : <span className="cmp-none">—</span>}</td>
@@ -219,83 +217,83 @@ function SlotPanel({ task, slot, index, diff, live, canPick, run, onPlan }: { ta
       if (!text) return
       void run(() => api().queueSlotNote(task.id, slot.id, text))
     } else if (canRerun) {
-      if (slot.status === 'done' && !confirm(`슬롯 ${index + 1}은 이미 완료된 결과입니다.\n현재 결과 위에서 이어서 실행하며, 테스트를 다시 돌립니다.\n계속할까요?`)) return
+      if (slot.status === 'done' && !confirm(tr('슬롯 {n}은 이미 완료된 결과입니다.\n현재 결과 위에서 이어서 실행하며, 테스트를 다시 돌립니다.\n계속할까요?', { n: index + 1 }))) return
       void run(() => api().runSlot(task.id, slot.id, text || undefined))
     }
     setNote('')
   }
 
   const pick = () => {
-    const base = `슬롯 ${index + 1} (${AGENT_LABEL[slot.agent]})을 선택해 ${slot.branch}를 현재 브랜치로 머지하고, 나머지 슬롯은 삭제합니다.`
+    const base = tr('슬롯 {n} ({agent})을 선택해 {branch}를 현재 브랜치로 머지하고, 나머지 슬롯은 삭제합니다.', { n: index + 1, agent: AGENT_LABEL[slot.agent], branch: slot.branch })
     if (warn) {
-      if (!confirm(`⚠ ${warn}\n\n${base}\n\n그래도 강제로 선택하시겠습니까?`)) return
+      if (!confirm(`⚠ ${warn}\n\n${base}\n\n${tr('그래도 강제로 선택하시겠습니까?')}`)) return
       void run(() => api().selectSlot(task.id, slot.id, true))
-    } else if (confirm(`${base}\n계속할까요?`)) void run(() => api().selectSlot(task.id, slot.id, false))
+    } else if (confirm(`${base}\n${tr('계속할까요?')}`)) void run(() => api().selectSlot(task.id, slot.id, false))
   }
 
   return (
     <section className={'bon-slot' + (chosen ? ' chosen' : '') + (gone ? ' gone' : '')}>
       <div className="bon-head">
         <div>
-          <strong>슬롯 {index + 1}</strong> <span className="muted small">{AGENT_LABEL[slot.agent]}</span>
+          <strong>{tr('슬롯 {n}', { n: index + 1 })}</strong> <span className="muted small">{AGENT_LABEL[slot.agent]}</span>
         </div>
         <div className="bon-head-right">
-          {slotRunning && <button className="btn sm danger" title="이 슬롯만 중지합니다. 다른 슬롯은 계속 실행됩니다" onClick={() => run(() => api().cancelSlot(task.id, slot.id))}>중지</button>}
-          {planned && <span className="copied small" role="status">추가됨</span>}
-          {copied && <span className="copied small" role="status">{copied === 'ok' ? '복사됨' : '복사 실패'}</span>}
-          {!gone && <button className="icon-btn" title="이 슬롯의 결과 요약을 계획 도우미에 추가 (diff 제외)" aria-label="계획 도우미에 추가" onClick={addPlan}>✚</button>}
-          {!gone && <button className="icon-btn" title={`현재 탭(${TAB_LABEL[tab]}) 내용 복사`} aria-label="현재 탭 내용 복사" onClick={copy}>⧉</button>}
-          <span className={'badge ' + slot.status}>{chosen ? '선택됨' : gone ? '정리됨' : STATUS_LABEL[slot.status]}</span>
+          {slotRunning && <button className="btn sm danger" title={tr('이 슬롯만 중지합니다. 다른 슬롯은 계속 실행됩니다')} onClick={() => run(() => api().cancelSlot(task.id, slot.id))}>{tr('중지')}</button>}
+          {planned && <span className="copied small" role="status">{tr('추가됨')}</span>}
+          {copied && <span className="copied small" role="status">{copied === 'ok' ? tr('복사됨') : tr('복사 실패')}</span>}
+          {!gone && <button className="icon-btn" title={tr('이 슬롯의 결과 요약을 계획 도우미에 추가 (diff 제외)')} aria-label={tr('계획 도우미에 추가')} onClick={addPlan}>✚</button>}
+          {!gone && <button className="icon-btn" title={tr('현재 탭({tab}) 내용 복사', { tab: tabLabel(tab) })} aria-label={tr('현재 탭 내용 복사')} onClick={copy}>⧉</button>}
+          <span className={'badge ' + slot.status}>{chosen ? tr('선택됨') : gone ? tr('정리됨') : statusLabel(slot.status)}</span>
         </div>
       </div>
       {!gone && (
         <>
           <div className="small">
-            {t ? <span className={'tres ' + t.status}>{t.status === 'none' ? '' : '테스트 '}{TEST_LABEL[t.status]}{t.total !== undefined ? ` (${t.passed ?? '?'}/${t.total})` : ''}</span> : <span className="muted">테스트 {settled ? '미실행' : '대기'}</span>}
-            {settled && tot.files > 0 && <span className="muted"> · 파일 {tot.files} · +{tot.adds} −{tot.dels}</span>}
-            {slot.startedAt && slot.endedAt && <span className="muted"> · {Math.round((slot.endedAt - slot.startedAt) / 1000)}초</span>}
+            {t ? <span className={'tres ' + t.status}>{t.status === 'none' ? '' : tr('테스트') + ' '}{testLabel(t.status)}{t.total !== undefined ? ` (${t.passed ?? '?'}/${t.total})` : ''}</span> : <span className="muted">{tr('테스트')} {settled ? tr('미실행') : tr('대기')}</span>}
+            {settled && tot.files > 0 && <span className="muted"> · {tr('파일')} {tot.files} · +{tot.adds} −{tot.dels}</span>}
+            {slot.startedAt && slot.endedAt && <span className="muted"> · {tr('{n}초', { n: Math.round((slot.endedAt - slot.startedAt) / 1000) })}</span>}
           </div>
           {canPick && slot.status === 'done' && (
-            <button className={'btn ' + (warn ? 'danger' : 'primary')} title={warn ?? undefined} onClick={pick}>{warn ? '경고 확인 후 선택' : '이 결과 선택 · 머지'}</button>
+            <button className={'btn ' + (warn ? 'danger' : 'primary')} title={warn ?? undefined} onClick={pick}>{warn ? tr('경고 확인 후 선택') : tr('이 결과 선택 · 머지')}</button>
           )}
           {canPick && warn && slot.status === 'done' && <div className="warnbar small">⚠ {warn}</div>}
           {slot.queued && (
             <div className="queued small">
-              <span className="muted">대기 중인 추가 지시 (현재 실행이 끝나면 이어서 실행):</span> {slot.queued}{' '}
-              <button className="link" onClick={() => run(() => api().queueSlotNote(task.id, slot.id, ''))}>취소</button>
+              <span className="muted">{tr('대기 중인 추가 지시 (현재 실행이 끝나면 이어서 실행):')}</span> {slot.queued}{' '}
+              <button className="link" onClick={() => run(() => api().queueSlotNote(task.id, slot.id, ''))}>{tr('취소')}</button>
             </div>
           )}
           {(slotRunning || canRerun) && (
             <details className="steer">
-              <summary className="small">{slotRunning ? '추가 지시 (실행 후 이어서)' : '추가 지시 · 이 슬롯만 다시 실행'}</summary>
+              <summary className="small">{slotRunning ? tr('추가 지시 (실행 후 이어서)') : tr('추가 지시 · 이 슬롯만 다시 실행')}</summary>
               <textarea
                 value={note}
                 rows={3}
                 maxLength={QUEUE_NOTE_MAX}
-                placeholder={slotRunning ? '지금 실행이 끝나면 이어서 적용할 지시 (Ctrl+Enter로 추가)' : '이어서 시킬 내용. 비워 두면 같은 요청으로 다시 실행 (Ctrl+Enter)'}
+                placeholder={slotRunning ? tr('지금 실행이 끝나면 이어서 적용할 지시 (Ctrl+Enter로 추가)') : tr('이어서 시킬 내용. 비워 두면 같은 요청으로 다시 실행 (Ctrl+Enter)')}
                 onChange={(e) => setNote(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitNote() } }}
               />
               <div className="row">
                 <button className="btn sm primary" disabled={slotRunning && !note.trim()} onClick={submitNote}>
-                  {slotRunning ? '대기열에 추가' : note.trim() ? '추가 지시로 이어서 실행' : '이 슬롯만 다시 실행'}
+                  {slotRunning ? tr('대기열에 추가') : note.trim() ? tr('추가 지시로 이어서 실행') : tr('이 슬롯만 다시 실행')}
                 </button>
-                {!slotRunning && <span className="muted small">현재 worktree 상태 위에서 이어서 실행하며 테스트도 다시 돌립니다.</span>}
+                {!slotRunning && <span className="muted small">{tr('현재 worktree 상태 위에서 이어서 실행하며 테스트도 다시 돌립니다.')}</span>}
               </div>
             </details>
           )}
-          {!slotRunning && !canRerun && settled && batchRunning && <div className="muted small">다른 슬롯이 실행 중입니다. 끝난 뒤 이 슬롯에 추가 지시를 줄 수 있습니다.</div>}
+          {!slotRunning && !canRerun && settled && batchRunning && <div className="muted small">{tr('다른 슬롯이 실행 중입니다. 끝난 뒤 이 슬롯에 추가 지시를 줄 수 있습니다.')}</div>}
           <div className="tabs">
             {(['diff', 'tests', 'result', 'log'] as const).map((k) => (
-              <button key={k} className={tab === k ? 'tab sel' : 'tab'} onClick={() => setTab(k)}>{{ diff: 'diff', tests: '테스트', result: '요약', log: '로그' }[k]}</button>
+              <button key={k} className={tab === k ? 'tab sel' : 'tab'} onClick={() => setTab(k)}>{tabLabel(k)}</button>
             ))}
           </div>
           <div className="pane bon-pane" ref={paneRef}>
             {tab === 'diff' && (settled
-              ? diff === undefined ? <div className="muted small dv-pad">diff 불러오는 중...</div> : <DiffView text={diff} />
-              : <pre>(실행 완료 후 표시됩니다)</pre>)}
+              ? diff === undefined ? <div className="muted small dv-pad">{tr('diff 불러오는 중...')}</div> : <DiffView text={diff} />
+              : <pre>{tr('(실행 완료 후 표시됩니다)')}</pre>)}
             {tab === 'tests' && <SlotTests slot={slot} />}
-            {tab === 'result' && <pre>{slot.output || '(아직 결과가 없습니다)'}</pre>}
+            {tab === 'result' && <pre>{slot.output || tr('(아직 결과가 없습니다)')}</pre>}
             {tab === 'log' && <LogPre lines={live && live.length ? live : stored.split('\n')} />}
           </div>
         </>
@@ -306,16 +304,16 @@ function SlotPanel({ task, slot, index, diff, live, canPick, run, onPlan }: { ta
 
 function SlotTests({ slot }: { slot: Slot }) {
   const r = slot.testResult
-  if (!r) return <div className="muted">{slot.status === 'running' ? '에이전트 실행 중...' : '테스트 결과가 없습니다.'}</div>
-  if (r.status === 'none') return <div className="muted">자동 테스트 없음 (package.json의 scripts.test 또는 *.test.js 없음)</div>
-  const counts = r.total !== undefined ? `총 ${r.total} · 통과 ${r.passed ?? '?'} · 실패 ${r.failed ?? '?'} · ` : ''
+  if (!r) return <div className="muted">{slot.status === 'running' ? tr('에이전트 실행 중...') : tr('테스트 결과가 없습니다.')}</div>
+  if (r.status === 'none') return <div className="muted">{tr('자동 테스트 없음 (package.json의 scripts.test 또는 *.test.js 없음)')}</div>
+  const counts = r.total !== undefined ? tr('총 {total} · 통과 {passed} · 실패 {failed} · ', { total: r.total, passed: r.passed ?? '?', failed: r.failed ?? '?' }) : ''
   return (
     <div className={'testbox ' + r.status}>
-      <h3>{TEST_LABEL[r.status]}</h3>
-      <div className="small">{r.command} · {counts}{(r.durationMs / 1000).toFixed(1)}초 · exit {String(r.exitCode ?? '-')}</div>
+      <h3>{testLabel(r.status)}</h3>
+      <div className="small">{r.command} · {counts}{tr('{n}초', { n: (r.durationMs / 1000).toFixed(1) })} · exit {String(r.exitCode ?? '-')}</div>
       {r.failures.length > 0 && <ul>{r.failures.map((f, i) => <li key={i}>{f}</li>)}</ul>}
-      {slot.coverage && <div className="small">새 기능 테스트 규칙: {slot.coverage.status === 'ok' ? 'OK' : '위반'} - {slot.coverage.reason}</div>}
-      {r.output && <details open={r.status !== 'pass'}><summary className="small">테스트 출력</summary><pre>{r.output}</pre></details>}
+      {slot.coverage && <div className="small">{tr('새 기능 테스트 규칙:')} {slot.coverage.status === 'ok' ? 'OK' : tr('위반')} - {slot.coverage.reason}</div>}
+      {r.output && <details open={r.status !== 'pass'}><summary className="small">{tr('테스트 출력')}</summary><pre>{r.output}</pre></details>}
     </div>
   )
 }
@@ -323,5 +321,5 @@ function SlotTests({ slot }: { slot: Slot }) {
 function LogPre({ lines }: { lines: string[] }) {
   const ref = useRef<HTMLPreElement>(null)
   useEffect(() => { ref.current?.scrollTo(0, ref.current.scrollHeight) }, [lines.length])
-  return <pre ref={ref} className="log">{lines.join('\n') || '(로그 없음)'}</pre>
+  return <pre ref={ref} className="log">{lines.join('\n') || tr('(로그 없음)')}</pre>
 }

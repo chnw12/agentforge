@@ -1,4 +1,5 @@
 import type { CoverageResult } from '../shared/types'
+import { t as tr } from '../shared/i18n'
 
 /** One changed file in base..HEAD. `before`/`after` are full contents (undefined = absent on that side). */
 export interface ChangedFile {
@@ -94,11 +95,11 @@ export function analyzeTestCoverage(files: ChangedFile[]): CoverageResult {
   const goneNames = removed.filter((n) => !movedOrKept.has(n))
   // renames: only a net increase counts as a new feature
   const netNew = newNames.length - goneNames.length
-  if (netNew <= 0) return { status: 'ok', reason: '새 공개 함수/클래스 추가 없음 (문서·설정·버그수정·리팩토링 등) - 테스트 필수 규칙 해당 없음', newSymbols: [], testFiles }
-  if (testFiles.length > 0) return { status: 'ok', reason: '새 기능과 함께 테스트 파일 변경이 있음', newSymbols: newNames, testFiles }
+  if (netNew <= 0) return { status: 'ok', reason: tr('새 공개 함수/클래스 추가 없음 (문서·설정·버그수정·리팩토링 등) - 테스트 필수 규칙 해당 없음'), newSymbols: [], testFiles }
+  if (testFiles.length > 0) return { status: 'ok', reason: tr('새 기능과 함께 테스트 파일 변경이 있음'), newSymbols: newNames, testFiles }
   return {
     status: 'missing',
-    reason: `새 공개 함수/기능(${newNames.join(', ')})이 추가됐지만 테스트 파일(*.test.js 등) 변경이 diff에 없습니다`,
+    reason: tr('새 공개 함수/기능({names})이 추가됐지만 테스트 파일(*.test.js 등) 변경이 diff에 없습니다', { names: newNames.join(', ') }),
     newSymbols: newNames,
     testFiles
   }

@@ -6,6 +6,7 @@ import { buildPlannerPrompt, parseProposal } from '../shared/planner'
 import { killTree, resolveExe, runProcess } from './proc'
 import { claudeArgs } from './pipeline'
 import { withSkills } from './skills'
+import { t as tr } from '../shared/i18n'
 import { parseEvent } from './parse'
 import { redact } from './redact'
 
@@ -89,7 +90,7 @@ export async function runPlanner(c: PlannerCtx): Promise<void> {
     if (a.cancelled) m.status = 'cancelled'
     else if (res.timedOut) {
       m.status = 'failed'
-      m.text ||= '[timeout] 에이전트가 제한 시간 안에 끝나지 않았습니다'
+      m.text ||= '[timeout] ' + tr('에이전트가 제한 시간 안에 끝나지 않았습니다')
     } else if (res.truncated) m.status = 'failed'
     else m.status = res.code === 0 && m.text.trim() ? 'done' : 'failed'
     if (m.status === 'done') {

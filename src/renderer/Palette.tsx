@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { rankItems } from '../shared/search'
+import { t } from '../shared/i18n'
 
 export interface PaletteItem {
   id: string
@@ -31,11 +32,11 @@ export function Palette({ items, onPick, onClose }: { items: PaletteItem[]; onPi
 
   return (
     <div className="modal-bg pal-bg" onClick={onClose}>
-      <div className="pal" role="dialog" aria-modal="true" aria-label="태스크 검색" onClick={(e) => e.stopPropagation()}>
+      <div className="pal" role="dialog" aria-modal="true" aria-label={t('태스크 검색')} onClick={(e) => e.stopPropagation()}>
         <input
           autoFocus
           className="pal-input"
-          placeholder="태스크 검색 · 프로젝트 · 상태 (예: 승인 대기)"
+          placeholder={t('태스크 검색 · 프로젝트 · 상태 (예: 승인 대기)')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKey}
@@ -44,7 +45,7 @@ export function Palette({ items, onPick, onClose }: { items: PaletteItem[]; onPi
           aria-controls="pal-list"
         />
         <div className="pal-list" id="pal-list" role="listbox" ref={listRef}>
-          {shown.length === 0 && <div className="muted small pal-empty">일치하는 항목이 없습니다.</div>}
+          {shown.length === 0 && <div className="muted small pal-empty">{t('일치하는 항목이 없습니다.')}</div>}
           {shown.map((it, i) => (
             <div key={it.id} role="option" aria-selected={i === cur} className={'pal-item' + (i === cur ? ' on' : '')} onMouseMove={() => setActive(i)} onClick={() => onPick(it)}>
               <span className="pal-main">
@@ -55,22 +56,22 @@ export function Palette({ items, onPick, onClose }: { items: PaletteItem[]; onPi
             </div>
           ))}
         </div>
-        <div className="pal-foot muted small">↑↓ 이동 · Enter 열기 · Esc 닫기</div>
+        <div className="pal-foot muted small">{t('↑↓ 이동 · Enter 열기 · Esc 닫기')}</div>
       </div>
     </div>
   )
 }
 
-export const SHORTCUTS: [string, string][] = [
-  ['Ctrl+K', '태스크 검색 / 명령 팔레트'],
-  ['Alt+↑ / Alt+↓', '이전 / 다음 태스크'],
-  ['Alt+1 … 4', 'Best-of-N: 모든 슬롯의 탭 전환 (diff · 테스트 · 요약 · 로그) / 파이프라인: 결과 · 로그 · diff'],
-  ['Ctrl+N', '새 태스크'],
-  ['Ctrl+J', '계획 도우미 패널 열기 / 닫기'],
-  ['Ctrl+,', '설정'],
-  ['Ctrl+/', '이 도움말'],
-  ['Esc', '열려 있는 창 닫기'],
-  ['Ctrl+Enter', '추가 지시 입력창에서 전송']
+export const shortcuts = (): [string, string][] => [
+  ['Ctrl+K', t('태스크 검색 / 명령 팔레트')],
+  ['Alt+↑ / Alt+↓', t('이전 / 다음 태스크')],
+  ['Alt+1 … 4', t('Best-of-N: 모든 슬롯의 탭 전환 (diff · 테스트 · 요약 · 로그) / 파이프라인: 결과 · 로그 · diff')],
+  ['Ctrl+N', t('새 태스크')],
+  ['Ctrl+J', t('계획 도우미 패널 열기 / 닫기')],
+  ['Ctrl+,', t('설정')],
+  ['Ctrl+/', t('이 도움말')],
+  ['Esc', t('열려 있는 창 닫기')],
+  ['Ctrl+Enter', t('추가 지시 입력창에서 전송')]
 ]
 
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {
@@ -81,12 +82,12 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
   }, [onClose])
   return (
     <div className="modal-bg" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="단축키" onClick={(e) => e.stopPropagation()}>
-        <h2>단축키</h2>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={t('단축키')} onClick={(e) => e.stopPropagation()}>
+        <h2>{t('단축키')}</h2>
         <table className="cmp-table">
-          <tbody>{SHORTCUTS.map(([k, d]) => <tr key={k}><td><kbd>{k}</kbd></td><td>{d}</td></tr>)}</tbody>
+          <tbody>{shortcuts().map(([k, d]) => <tr key={k}><td><kbd>{k}</kbd></td><td>{d}</td></tr>)}</tbody>
         </table>
-        <div className="row"><button className="btn" onClick={onClose}>닫기</button></div>
+        <div className="row"><button className="btn" onClick={onClose}>{t('닫기')}</button></div>
       </div>
     </div>
   )

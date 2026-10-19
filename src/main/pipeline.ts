@@ -9,6 +9,7 @@ import { runTests, summarizeTests, testsBlockMerge } from './testrun'
 import { analyzeTestCoverage, coverageBlocksMerge } from './coverage'
 import { redact } from './redact'
 import { withSkills } from './skills'
+import { t as tr } from '../shared/i18n'
 import { parseEvent, verdictOf } from './parse'
 
 export const logDir = (taskId: string) => path.join(app.getPath('userData'), 'logs', taskId)
@@ -129,7 +130,7 @@ export async function runStage(c: RunCtx, stage: Stage): Promise<void> {
     stage.testResult = undefined
     if (stage.kind === 'verify') {
       // deterministic gate: run the project's own tests in the worktree before the model gets a say
-      log('[tests] 프로젝트 테스트 명령 감지 중...')
+      log('[tests] ' + tr('프로젝트 테스트 명령 감지 중...'))
       tests = await runTests(wt, await headOid(wt), (l) => log('[tests] ' + l), (p) => {
         a.pid = p
         if (a.cancelled) killTree(p)
@@ -141,7 +142,7 @@ export async function runStage(c: RunCtx, stage: Stage): Promise<void> {
         stage.coverage = analyzeTestCoverage(await changedFiles(wt, task.baseCommit))
       } catch (e) {
         // cannot tell -> do not pass silently
-        stage.coverage = { status: 'missing', reason: '변경 파일 분석 실패: ' + (e as Error).message, newSymbols: [], testFiles: [] }
+        stage.coverage = { status: 'missing', reason: tr('변경 파일 분석 실패:') + ' ' + (e as Error).message, newSymbols: [], testFiles: [] }
       }
       log(`[coverage] ${stage.coverage.status === 'ok' ? 'OK' : 'MISSING'} - ${stage.coverage.reason}`)
       c.onChange()
@@ -197,22 +198,22 @@ export async function runStage(c: RunCtx, stage: Stage): Promise<void> {
     // failing/timed-out/errored tests force FAIL whatever the model said (fail-closed)
     if (stage.status === 'done' && stage.kind === 'verify' && testsBlockMerge(stage.testResult)) {
       stage.status = 'failed'
-      log(`[gate] 실제 테스트 실행이 통과하지 못했습니다 (${summarizeTests(stage.testResult!)}) - Codex 판단과 무관하게 검증 FAIL, 머지 승인 불가.`)
+      log('[gate] ' + tr('실제 테스트 실행이 통과하지 못했습니다 ({summary}) - Codex 판단과 무관하게 검증 FAIL, 머지 승인 불가.', { summary: summarizeTests(stage.testResult!) }))
       stage.output += `
 
-[host] 테스트 실행 결과가 ${stage.testResult!.status}이므로 최종 검증은 FAIL 입니다.
+[host] ${tr('테스트 실행 결과가 {status}이므로 최종 검증은 FAIL 입니다.', { status: stage.testResult!.status })}
 VERDICT: FAIL`
     }
     // new public function(s) without any test change: FAIL regardless of the model
     if (stage.status === 'done' && stage.kind === 'verify' && coverageBlocksMerge(stage.coverage)) {
       stage.status = 'failed'
-      log(`[gate] ${stage.coverage!.reason} - 검증 FAIL, 머지 승인 불가. 테스트를 추가한 뒤 다시 진행하세요.`)
+      log(`[gate] ${stage.coverage!.reason} - ${tr('검증 FAIL, 머지 승인 불가. 테스트를 추가한 뒤 다시 진행하세요.')}`)
       stage.output += `\n\n[host] ${stage.coverage!.reason}\nVERDICT: FAIL`
     }
     // the verifier's verdict is a hard gate: anything but an explicit PASS blocks merge approval
     if (stage.status === 'done' && stage.kind === 'verify' && verdictOf(stage.output) !== 'PASS') {
       stage.status = 'failed'
-      log('[gate] 검증 결과가 VERDICT: PASS가 아닙니다 - 머지 승인 불가. 수정 후 다시 실행하거나 폐기하세요.')
+      log('[gate] ' + tr('검증 결과가 VERDICT: PASS가 아닙니다 - 머지 승인 불가. 수정 후 다시 실행하거나 폐기하세요.'))
     }
     if (stage.status === 'done' && stage.kind === 'build') {
       const head = await commitAll(wt, `AgentForge: ${task.title}`.slice(0, 100))

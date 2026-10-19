@@ -1,4 +1,6 @@
 import type { AgentKind, PlanContextItem, PlanMessage, PlanProposal, Slot, Stage, StageKind, Task, TaskMode } from './types'
+import { t as tr } from './i18n'
+import { stageLabel, statusLabel } from './labels'
 
 export const PLAN_LIMITS = {
   item: 30_000, // chars per context item
@@ -13,11 +15,6 @@ export const PLAN_LIMITS = {
 } as const
 
 const AGENT_LABEL: Record<AgentKind, string> = { claude: 'Claude Code', codex: 'Codex' }
-const STAGE_LABEL: Record<StageKind, string> = { design: '설계', review: '교차검토', build: '구현', verify: '2차검증' }
-const STATUS_LABEL: Record<string, string> = {
-  pending: '대기', running: '실행 중', done: '완료', failed: '실패', interrupted: '중단됨', cancelled: '취소됨',
-  created: '준비됨', 'awaiting-approval': '승인 대기', 'ready-to-merge': '머지 가능', merged: '머지됨', discarded: '폐기됨'
-}
 const FENCE = '```'
 
 /** Drops control characters (keeps \n and \t), normalizes CRLF. */
@@ -28,7 +25,7 @@ export function sanitizeText(s: string): string {
 
 export function truncateText(s: string, max: number): { text: string; truncated: boolean } {
   if (s.length <= max) return { text: s, truncated: false }
-  return { text: s.slice(0, max) + `\n[... ${s.length - max}자 생략 ...]`, truncated: true }
+  return { text: s.slice(0, max) + `\n${tr('[... {n}자 생략 ...]', { n: s.length - max })}`, truncated: true }
 }
 
 export const countRedactions = (s: string) => (s.match(/\[REDACTED\]/g) ?? []).length
@@ -38,42 +35,42 @@ export const countRedactions = (s: string) => (s.match(/\[REDACTED\]/g) ?? []).l
 const clip = (s: string, n: number) => truncateText(sanitizeText(s).trim(), n).text
 
 function testLine(t: Slot['testResult']): string {
-  if (!t) return '테스트: 미실행'
+  if (!t) return tr('테스트: 미실행')
   const counts = t.total !== undefined ? ` ${t.passed ?? '?'}/${t.total}` : ''
   const fails = t.failures.slice(0, 5).map((f) => `  - ${clip(f, 200)}`).join('\n')
-  return `테스트: ${t.status}${counts} (${t.command})${fails ? '\n' + fails : ''}`
+  return `${tr('테스트:')} ${t.status}${counts} (${t.command})${fails ? '\n' + fails : ''}`
 }
 
 export function slotDigest(task: Task, slot: Slot, index: number, stats?: { files: number; adds: number; dels: number; paths?: string[] }): Omit<PlanContextItem, 'id'> {
-  const secs = slot.startedAt && slot.endedAt ? `${Math.round((slot.endedAt - slot.startedAt) / 1000)}초` : ''
-  const head = [`슬롯 ${index + 1}`, AGENT_LABEL[slot.agent], STATUS_LABEL[slot.status] ?? slot.status, secs].filter(Boolean).join(' · ')
-  const lines = [`[${head}]`, `태스크: ${task.title}`, testLine(slot.testResult)]
-  if (slot.coverage) lines.push(`새 기능 테스트 규칙: ${slot.coverage.status === 'ok' ? 'OK' : '위반'} - ${slot.coverage.reason}`)
-  if (stats) lines.push(`변경: 파일 ${stats.files} · +${stats.adds} −${stats.dels}${stats.paths?.length ? '\n변경 파일: ' + stats.paths.slice(0, 40).join(', ') : ''}`)
-  if (slot.output.trim()) lines.push('에이전트 최종 답변:', clip(slot.output, PLAN_LIMITS.digestOutput))
+  const secs = slot.startedAt && slot.endedAt ? tr('{n}초', { n: Math.round((slot.endedAt - slot.startedAt) / 1000) }) : ''
+  const head = [tr('슬롯 {n}', { n: index + 1 }), AGENT_LABEL[slot.agent], statusLabel(slot.status), secs].filter(Boolean).join(' · ')
+  const lines = [`[${head}]`, `${tr('태스크:')} ${task.title}`, testLine(slot.testResult)]
+  if (slot.coverage) lines.push(`${tr('새 기능 테스트 규칙:')} ${slot.coverage.status === 'ok' ? 'OK' : tr('위반')} - ${slot.coverage.reason}`)
+  if (stats) lines.push(`${tr('변경:')} ${tr('파일')} ${stats.files} · +${stats.adds} −${stats.dels}${stats.paths?.length ? '\n' + tr('변경 파일:') + ' ' + stats.paths.slice(0, 40).join(', ') : ''}`)
+  if (slot.output.trim()) lines.push(tr('에이전트 최종 답변:'), clip(slot.output, PLAN_LIMITS.digestOutput))
   const { text, truncated } = truncateText(lines.join('\n'), PLAN_LIMITS.item)
-  return { label: `슬롯 ${index + 1} (${AGENT_LABEL[slot.agent]}) · ${task.title}`, kind: 'slot', text, truncated, source: { taskId: task.id, slotId: slot.id } }
+  return { label: `${tr('슬롯 {n}', { n: index + 1 })} (${AGENT_LABEL[slot.agent]}) · ${task.title}`, kind: 'slot', text, truncated, source: { taskId: task.id, slotId: slot.id } }
 }
 
 export function stageDigest(task: Task, stage: Stage): Omit<PlanContextItem, 'id'> {
-  const lines = [`[${STAGE_LABEL[stage.kind]} · ${AGENT_LABEL[stage.agent]} · ${STATUS_LABEL[stage.status] ?? stage.status}]`, `태스크: ${task.title}`]
+  const lines = [`[${stageLabel(stage.kind)} · ${AGENT_LABEL[stage.agent]} · ${statusLabel(stage.status)}]`, `${tr('태스크:')} ${task.title}`]
   if (stage.testResult) lines.push(testLine(stage.testResult))
-  if (stage.coverage) lines.push(`새 기능 테스트 규칙: ${stage.coverage.status === 'ok' ? 'OK' : '위반'} - ${stage.coverage.reason}`)
-  if (stage.output.trim()) lines.push('출력:', clip(stage.output, PLAN_LIMITS.digestOutput * 2))
+  if (stage.coverage) lines.push(`${tr('새 기능 테스트 규칙:')} ${stage.coverage.status === 'ok' ? 'OK' : tr('위반')} - ${stage.coverage.reason}`)
+  if (stage.output.trim()) lines.push(tr('출력:'), clip(stage.output, PLAN_LIMITS.digestOutput * 2))
   const { text, truncated } = truncateText(lines.join('\n'), PLAN_LIMITS.item)
-  return { label: `${STAGE_LABEL[stage.kind]} · ${task.title}`, kind: 'stage', text, truncated, source: { taskId: task.id, stage: stage.kind } }
+  return { label: `${stageLabel(stage.kind)} · ${task.title}`, kind: 'stage', text, truncated, source: { taskId: task.id, stage: stage.kind } }
 }
 
 /** Whole-task overview: request, state and one line per stage/slot. */
 export function taskDigest(task: Task): Omit<PlanContextItem, 'id'> {
-  const lines = [`[태스크] ${task.title}`, `모드: ${task.mode === 'best-of-n' ? 'Best-of-N' : '파이프라인'} · 상태: ${STATUS_LABEL[task.status] ?? task.status}`, '요청 내용:', clip(task.prompt, 4_000)]
+  const lines = [`[${tr('태스크')}] ${task.title}`, `${tr('모드:')} ${task.mode === 'best-of-n' ? 'Best-of-N' : tr('파이프라인')} · ${tr('상태:')} ${statusLabel(task.status)}`, tr('요청 내용:'), clip(task.prompt, 4_000)]
   if (task.mode === 'best-of-n') {
-    for (const [i, s] of (task.slots ?? []).entries()) lines.push(`- 슬롯 ${i + 1} ${AGENT_LABEL[s.agent]}: ${STATUS_LABEL[s.status] ?? s.status}, ${s.testResult ? `테스트 ${s.testResult.status}` : '테스트 미실행'}`)
+    for (const [i, s] of (task.slots ?? []).entries()) lines.push(`- ${tr('슬롯 {n}', { n: i + 1 })} ${AGENT_LABEL[s.agent]}: ${statusLabel(s.status)}, ${s.testResult ? `${tr('테스트')} ${s.testResult.status}` : tr('테스트 미실행')}`)
   } else {
-    for (const s of task.stages) lines.push(`- ${STAGE_LABEL[s.kind]} ${AGENT_LABEL[s.agent]}: ${STATUS_LABEL[s.status] ?? s.status}`)
+    for (const s of task.stages) lines.push(`- ${stageLabel(s.kind)} ${AGENT_LABEL[s.agent]}: ${statusLabel(s.status)}`)
   }
   const { text, truncated } = truncateText(lines.join('\n'), PLAN_LIMITS.item)
-  return { label: `태스크 개요 · ${task.title}`, kind: 'task', text, truncated, source: { taskId: task.id } }
+  return { label: `${tr('태스크 개요')} · ${task.title}`, kind: 'task', text, truncated, source: { taskId: task.id } }
 }
 
 // ---------- prompt ----------
@@ -119,13 +116,14 @@ export function buildPlannerPrompt(i: PlannerPromptInput): string {
   const { used } = fitContexts(i.contexts)
   const ctx = used.length
     ? used.map((c, n) => `<<<ITEM ${n + 1}: ${c.label.replace(/[<>\n]/g, ' ')}>>>\n${sanitizeText(c.text)}\n<<<END ITEM ${n + 1}>>>`).join('\n\n')
-    : '(없음)'
+    : tr('(없음)')
   const history = i.history.length
-    ? `\n# 지금까지의 대화\n${i.history.map((m) => `### ${m.role === 'user' ? '사용자' : '에이전트'}\n${m.role === 'agent' ? stripProposalBlock(m.text) : m.text}`).join('\n\n')}\n`
+    ? `\n${tr('# 지금까지의 대화')}\n${i.history.map((m) => `### ${m.role === 'user' ? tr('사용자') : tr('에이전트')}\n${m.role === 'agent' ? stripProposalBlock(m.text) : m.text}`).join('\n\n')}\n`
     : ''
   return `# 역할
 너는 계획 도우미다. 구현하지 말고, 다음 작업을 설계해 제안만 한다.
 저장소(${i.projectName})는 읽기 전용으로 확인할 수 있다. 파일을 수정하거나 명령을 실행하지 않는다.
+${tr('응답 언어: 설명과 제안 블록의 모든 문장을 한국어로 쓴다.')}
 
 # 사용자의 목표
 ${sanitizeText(i.goal)}
@@ -170,25 +168,25 @@ const strList = (v: unknown, max = 10): string[] =>
 export function parseProposal(text: string): { proposal?: PlanProposal; error?: string } {
   const blocks = [...text.matchAll(/```af-proposal[^\n]*\n([\s\S]*?)```/g)]
   const last = blocks[blocks.length - 1]
-  if (!last) return { error: '응답에 af-proposal 블록이 없습니다' }
+  if (!last) return { error: tr('응답에 af-proposal 블록이 없습니다') }
   let j: unknown
   try {
     j = JSON.parse(last[1]!)
   } catch (e) {
-    return { error: `제안 블록이 올바른 JSON이 아닙니다: ${(e as Error).message}` }
+    return { error: tr('제안 블록이 올바른 JSON이 아닙니다: {msg}', { msg: (e as Error).message }) }
   }
-  if (!j || typeof j !== 'object' || Array.isArray(j)) return { error: '제안 블록은 JSON 객체여야 합니다' }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return { error: tr('제안 블록은 JSON 객체여야 합니다') }
   const o = j as Record<string, unknown>
   const title = typeof o.title === 'string' ? sanitizeText(o.title).replace(/\s+/g, ' ').trim() : ''
-  if (!title || title.length > PLAN_LIMITS.title) return { error: `title은 1~${PLAN_LIMITS.title}자여야 합니다` }
+  if (!title || title.length > PLAN_LIMITS.title) return { error: tr('title은 1~{max}자여야 합니다', { max: PLAN_LIMITS.title }) }
   const prompt = typeof o.prompt === 'string' ? sanitizeText(o.prompt).trim() : ''
-  if (!prompt || prompt.length > PLAN_LIMITS.prompt) return { error: `prompt는 1~${PLAN_LIMITS.prompt}자여야 합니다` }
-  if (typeof o.mode !== 'string' || !MODES.includes(o.mode as TaskMode)) return { error: 'mode는 pipeline 또는 best-of-n이어야 합니다' }
+  if (!prompt || prompt.length > PLAN_LIMITS.prompt) return { error: tr('prompt는 1~{max}자여야 합니다', { max: PLAN_LIMITS.prompt }) }
+  if (typeof o.mode !== 'string' || !MODES.includes(o.mode as TaskMode)) return { error: tr('mode는 pipeline 또는 best-of-n이어야 합니다') }
   let slotAgents: AgentKind[] = ['claude', 'codex']
   if (o.slotAgents !== undefined) {
     const a = o.slotAgents
     if (!Array.isArray(a) || a.length < 2 || a.length > 3 || !a.every((x) => AGENTS.includes(x as AgentKind))) {
-      if (o.mode === 'best-of-n') return { error: 'slotAgents는 claude/codex 2~3개여야 합니다' }
+      if (o.mode === 'best-of-n') return { error: tr('slotAgents는 claude/codex 2~3개여야 합니다') }
     } else slotAgents = a as AgentKind[]
   }
   const note = (v: unknown) => (typeof v === 'string' && v.trim() ? sanitizeText(v).trim().slice(0, PLAN_LIMITS.note) : undefined)

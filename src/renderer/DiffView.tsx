@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { diffTotals, parseDiff, type DiffFile } from '../shared/diff'
+import { t } from '../shared/i18n'
 
-const STATUS_TAG: Record<DiffFile['status'], string | null> = { added: '신규', deleted: '삭제', renamed: '이름 변경', modified: null }
+const statusTag = (s: DiffFile['status']): string | null => ({ added: t('신규'), deleted: t('삭제'), renamed: t('이름 변경'), modified: null }[s])
 const LINE_CAP = 1500 // rendered lines per file before the "show more" button
 const lineCount = (f: DiffFile) => f.hunks.reduce((n, h) => n + h.lines.length + 1, 0)
 
@@ -11,7 +12,7 @@ function initialOpen(files: DiffFile[]): Set<string> {
   return new Set(small ? files.map((f) => f.path) : files.slice(0, 1).map((f) => f.path))
 }
 
-export function DiffView({ text, empty = '(변경 없음)' }: { text: string; empty?: string }) {
+export function DiffView({ text, empty = t('(변경 없음)') }: { text: string; empty?: string }) {
   const parsed = useMemo(() => parseDiff(text), [text])
   const [open, setOpen] = useState<Set<string>>(() => initialOpen(parsed.files))
   useEffect(() => setOpen(initialOpen(parsed.files)), [parsed])
@@ -24,10 +25,10 @@ export function DiffView({ text, empty = '(변경 없음)' }: { text: string; em
     <div className="dv">
       {parsed.files.length > 1 && (
         <div className="dv-bar small">
-          <span className="muted">파일 {total.files} · <span className="ok">+{total.adds}</span> <span className="bad">−{total.dels}</span></span>
+          <span className="muted">{t('파일')} {total.files} · <span className="ok">+{total.adds}</span> <span className="bad">−{total.dels}</span></span>
           <span className="dv-ctl">
-            <button className="link" onClick={() => setOpen(new Set(parsed.files.map((f) => f.path)))}>모두 펼치기</button>
-            <button className="link" onClick={() => setOpen(new Set())}>모두 접기</button>
+            <button className="link" onClick={() => setOpen(new Set(parsed.files.map((f) => f.path)))}>{t('모두 펼치기')}</button>
+            <button className="link" onClick={() => setOpen(new Set())}>{t('모두 접기')}</button>
           </span>
         </div>
       )}
@@ -39,7 +40,7 @@ export function DiffView({ text, empty = '(변경 없음)' }: { text: string; em
 
 function FileDiff({ f, open, onToggle }: { f: DiffFile; open: boolean; onToggle: () => void }) {
   const [cap, setCap] = useState(LINE_CAP)
-  const tag = STATUS_TAG[f.status]
+  const tag = statusTag(f.status)
   let budget = cap
   const bodyLines = f.hunks.reduce((n, h) => n + h.lines.length, 0)
   return (
@@ -52,7 +53,7 @@ function FileDiff({ f, open, onToggle }: { f: DiffFile; open: boolean; onToggle:
       </button>
       {open && (
         <div className="dv-body">
-          {f.binary && <div className="muted small dv-pad">바이너리 파일 (내용 비교 불가)</div>}
+          {f.binary && <div className="muted small dv-pad">{t('바이너리 파일 (내용 비교 불가)')}</div>}
           {f.hunks.map((h, i) => {
             const shown = h.lines.slice(0, Math.max(0, budget))
             budget -= shown.length
@@ -66,7 +67,7 @@ function FileDiff({ f, open, onToggle }: { f: DiffFile; open: boolean; onToggle:
             )
           })}
           {bodyLines > cap && (
-            <button className="link dv-pad" onClick={() => setCap((c) => c + LINE_CAP)}>더 보기 ({bodyLines - cap}줄 남음)</button>
+            <button className="link dv-pad" onClick={() => setCap((c) => c + LINE_CAP)}>{t('더 보기 ({n}줄 남음)', { n: bodyLines - cap })}</button>
           )}
         </div>
       )}

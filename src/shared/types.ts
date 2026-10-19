@@ -139,6 +139,7 @@ export interface SkillSettings {
 export interface SkillInfo { id: string; agent: AgentKind; name: string; description: string; chars: number }
 
 export interface Settings {
+  language: 'auto' | 'ko' | 'en' // UI language; auto = follow the OS locale
   claudeSafeMode: boolean
   skills: SkillSettings
   claudeModel: string // passed as --model; empty = Claude Code's own default
@@ -156,6 +157,7 @@ export interface AppState { projects: Project[]; tasks: Task[]; settings: Settin
 export interface PlannerLogEvent { threadId: string; line: string }
 
 export const DEFAULT_SETTINGS: Settings = {
+  language: 'auto',
   claudeSafeMode: true,
   skills: { enabled: [], personal: [] },
   claudeModel: '',

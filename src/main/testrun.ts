@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { TestResult } from '../shared/types'
 import { resolveExe, runProcess } from './proc'
 import { redact } from './redact'
+import { t as tr } from '../shared/i18n'
 
 export const TEST_TIMEOUT_MS = 60_000
 const OUTPUT_KEEP = 12_000
@@ -87,7 +88,7 @@ export async function runTests(
     exe = resolveExe('node')
     args = ['--test', '--test-reporter=spec']
   }
-  if (!exe) return { ...base, status: 'error', durationMs: 0, output: `테스트 실행기를 찾을 수 없습니다 (${plan.kind === 'npm' ? 'cmd.exe' : 'node.exe'})` }
+  if (!exe) return { ...base, status: 'error', durationMs: 0, output: tr('테스트 실행기를 찾을 수 없습니다 ({exe})', { exe: plan.kind === 'npm' ? 'cmd.exe' : 'node.exe' }) }
 
   const lines: string[] = []
   const t0 = Date.now()
@@ -104,16 +105,16 @@ export async function runTests(
   })
   const durationMs = Date.now() - t0
   const full = redact(lines.join('\n'))
-  const output = full.length > OUTPUT_KEEP ? '[... 앞부분 생략 ...]\n' + full.slice(-OUTPUT_KEEP) : full
+  const output = full.length > OUTPUT_KEEP ? tr('[... 앞부분 생략 ...]') + '\n' + full.slice(-OUTPUT_KEEP) : full
   const parsed = parseTestOutput(full)
   const common = { ...base, durationMs, exitCode: res.code, output, ...parsed }
 
-  if (res.timedOut) return { ...common, status: 'timeout', failures: [`${Math.round(timeoutMs / 1000)}초 타임아웃 - 프로세스 강제 종료됨`, ...parsed.failures] }
-  if (res.truncated) return { ...common, status: 'error', failures: ['출력 한도 초과로 중단됨', ...parsed.failures] }
+  if (res.timedOut) return { ...common, status: 'timeout', failures: [tr('{n}초 타임아웃 - 프로세스 강제 종료됨', { n: Math.round(timeoutMs / 1000) }), ...parsed.failures] }
+  if (res.truncated) return { ...common, status: 'error', failures: [tr('출력 한도 초과로 중단됨'), ...parsed.failures] }
   if (res.code !== 0) return { ...common, status: 'fail' }
   // exit 0 but the reporter says otherwise, or node --test ran nothing: do not trust it
   if ((parsed.failed ?? 0) > 0) return { ...common, status: 'fail' }
-  if (plan.kind === 'node' && !parsed.total) return { ...common, status: 'fail', failures: ['실행된 테스트가 0개입니다'] }
+  if (plan.kind === 'node' && !parsed.total) return { ...common, status: 'fail', failures: [tr('실행된 테스트가 0개입니다')] }
   return { ...common, status: 'pass' }
 }
 
@@ -121,8 +122,8 @@ export async function runTests(
 export const testsBlockMerge = (r: TestResult | undefined): boolean => !!r && r.status !== 'pass' && r.status !== 'none'
 
 export function summarizeTests(r: TestResult): string {
-  if (r.status === 'none') return '자동 테스트 없음, 코드 리뷰만 수행'
-  const counts = r.total !== undefined ? ` (총 ${r.total} / 통과 ${r.passed ?? '?'} / 실패 ${r.failed ?? '?'})` : ''
+  if (r.status === 'none') return tr('자동 테스트 없음, 코드 리뷰만 수행')
+  const counts = r.total !== undefined ? ` (${tr('총 {total} / 통과 {passed} / 실패 {failed}', { total: r.total, passed: r.passed ?? '?', failed: r.failed ?? '?' })})` : ''
   const label = { pass: 'PASS', fail: 'FAIL', timeout: 'TIMEOUT(=FAIL)', error: 'ERROR(=FAIL)' }[r.status]
   return `${r.command}: ${label}${counts}, ${(r.durationMs / 1000).toFixed(1)}s`
 }

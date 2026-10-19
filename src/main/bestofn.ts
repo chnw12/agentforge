@@ -10,6 +10,7 @@ import { claudeArgs, logDir } from './pipeline'
 import { parseEvent } from './parse'
 import { redact } from './redact'
 import { withSkills } from './skills'
+import { t as tr } from '../shared/i18n'
 
 export const MIN_SLOTS = 2
 export const MAX_SLOTS = 3
@@ -56,7 +57,7 @@ export const slotLogFile = (taskId: string, slotId: string) => path.join(logDir(
  * If any step fails (or HEAD moved between slots) the ones already made are removed again.
  */
 export async function createSlots(repo: string, agents: AgentKind[]): Promise<{ slots: Slot[]; base: string }> {
-  if (agents.length < MIN_SLOTS || agents.length > MAX_SLOTS) throw new Error(`슬롯은 ${MIN_SLOTS}~${MAX_SLOTS}개여야 합니다`)
+  if (agents.length < MIN_SLOTS || agents.length > MAX_SLOTS) throw new Error(tr('슬롯은 {min}~{max}개여야 합니다', { min: MIN_SLOTS, max: MAX_SLOTS }))
   return withRepoLock(repo, async () => {
     const made: Slot[] = []
     let base = ''
@@ -66,7 +67,7 @@ export async function createSlots(repo: string, agents: AgentKind[]): Promise<{ 
         const w = await addWorktree(repo, id)
         made.push({ id, agent, branch: w.branch, status: 'pending', output: '' })
         base ||= w.base
-        if (w.base !== base) throw new Error('슬롯 생성 중 저장소 HEAD가 바뀌었습니다. 다시 시도하세요')
+        if (w.base !== base) throw new Error(tr('슬롯 생성 중 저장소 HEAD가 바뀌었습니다. 다시 시도하세요'))
       }
     } catch (e) {
       for (const s of made) await removeWorktree(repo, s.id, true).catch(() => undefined)
@@ -128,7 +129,7 @@ async function runAgent(c: BonCtx, s: Slot, a: Active, note?: string): Promise<v
   c.onChange()
   try {
     if (note) {
-      log('--- 추가 지시로 이어서 실행 ---')
+      log('--- ' + tr('추가 지시로 이어서 실행') + ' ---')
       log('[user] ' + note)
     }
     else await fs.writeFile(slotLogFile(task.id, s.id), '', 'utf8')
@@ -179,7 +180,7 @@ async function runAgent(c: BonCtx, s: Slot, a: Active, note?: string): Promise<v
       const head = await commitAll(wt, `AgentForge best-of-n (${s.agent}): ${task.title}`.slice(0, 100))
       if (head === task.baseCommit) {
         s.status = 'failed'
-        s.output += '\n\n[host] 이 슬롯은 변경사항을 만들지 않았습니다.'
+        s.output += '\n\n[host] ' + tr('이 슬롯은 변경사항을 만들지 않았습니다.')
         log('[host] no changes produced')
       } else {
         s.head = head
@@ -204,13 +205,13 @@ async function testSlot(c: BonCtx, s: Slot, a: Active): Promise<void> {
   const wt = worktreePath(s.id)
   const { log, flush } = slotLogger(c, s)
   try {
-    log('[tests] 프로젝트 테스트 명령 감지 중...')
+    log('[tests] ' + tr('프로젝트 테스트 명령 감지 중...'))
     s.testResult = await runTests(wt, s.head!, (l) => log('[tests] ' + l), track(a, s.id))
     log(`[tests] ${summarizeTests(s.testResult)}`)
     try {
       s.coverage = analyzeTestCoverage(await changedFiles(wt, c.task.baseCommit))
     } catch (e) {
-      s.coverage = { status: 'missing', reason: '변경 파일 분석 실패: ' + (e as Error).message, newSymbols: [], testFiles: [] }
+      s.coverage = { status: 'missing', reason: tr('변경 파일 분석 실패:') + ' ' + (e as Error).message, newSymbols: [], testFiles: [] }
     }
     log(`[coverage] ${s.coverage.status === 'ok' ? 'OK' : 'MISSING'} - ${s.coverage.reason}`)
   } catch (e) {
