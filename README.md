@@ -10,7 +10,7 @@ A **Windows desktop app** that runs [Claude Code](https://docs.claude.com/en/doc
 
 Every agent works only inside its own worktree and `af/<id>` branch. Merging always requires an explicit click from you.
 
-> **Status: early (v0.1.0), Windows only, Korean UI.** The interface text is currently Korean; an English UI is planned. In this README, UI labels are given in English with the Korean label in parentheses. Most automated checks were run against fake agents; see [Known limitations](#known-limitations).
+> **Status: early (v0.1.0), Windows only.** The UI is available in English and Korean (**Settings → Language**; the default follows your OS language). Most automated checks were run against fake agents; see [Known limitations](#known-limitations).
 
 ## Requirements
 - Windows 10/11 and `git`
@@ -33,12 +33,12 @@ npm test
 ```
 
 ## Quick start
-1. Click **+ Project** (**+ 프로젝트 추가**) and pick a git repository folder.
-2. Click **+ Task** (**+ 태스크**) next to the project, enter a title and a request, and choose the mode (Pipeline or Best-of-N).
+1. Click **+ Add project** and pick a git repository folder.
+2. Click **+ Task** next to the project, enter a title and a request, and choose the mode (Pipeline or Best-of-N).
 3. Follow the mode-specific flow below.
 
 ### Pipeline
-You advance each stage with the **approve and run** button (**실행 승인**).
+You advance each stage with the **Approve and run** button.
 
 | Stage | Agent | Permissions |
 |---|---|---|
@@ -56,7 +56,7 @@ You advance each stage with the **approve and run** button (**실행 승인**).
 - Create 2–3 slots and pick an agent (Claude Code or Codex) for each. There is no design stage; every slot implements the same request directly.
 - Slots implement in parallel. Their tests run one after another as each slot finishes, so they do not interfere with each other.
 - The **slot comparison** table shows status, tests, changed files, +/− lines and elapsed time side by side. "Changed files per slot" shows which slot touched which file, including files only one slot touched.
-- Choose the result you like with **pick this result and merge** (**이 결과 선택 · 머지**). That branch is merged and the other slots' worktrees and branches are cleaned up. A slot whose tests did not run or failed needs you to acknowledge a warning first.
+- Choose the result you like with **Pick this result and merge**. That branch is merged and the other slots' worktrees and branches are cleaned up. A slot whose tests did not run or failed needs you to acknowledge a warning first.
 - If a merge conflicts, the merge is aborted and the error is shown. The main branch and the slot worktrees are left as they were.
 
 #### Per-slot control
@@ -77,7 +77,7 @@ A collapsible right-hand panel (`Ctrl+J`) for working out what to do next with a
 2. **Collect previous results ("reference material").** Paste results from finished work, or add summaries (status, tests, changed files, final answer) with the ✚ in a slot header, **add selected stage to planner** in a stage view, or **send to planner** in a task header. **Diffs are excluded by default**; use **+ add diff** on an item to include one.
 3. **Ask.** Write the request in **what to do next** (the design request to the planner) and press `Ctrl+Enter`. The agent inspects the repository **read-only** (Claude: only the Read/Grep/Glob tools; Codex: read-only sandbox) and returns a proposal.
 4. **Proposal card.** Shows a title, the request text for the new task, and the rationale, risks and open questions. The mode the agent recommends (Pipeline or Best-of-N) is preselected. Everything is editable.
-5. **Create the task.** The new-task dialog opens prefilled with the proposal, and the task is only created when you press **Create** (**생성**). Nothing is created or started automatically. Created tasks show a "plan origin" link, and you can send their results back to the planner to continue.
+5. **Create the task.** The new-task dialog opens prefilled with the proposal, and the task is only created when you press **Create**. Nothing is created or started automatically. Created tasks show a "plan origin" link, and you can send their results back to the planner to continue.
 
 - **Conversation mode**: "continue" resends the earlier conversation each time; "fresh" sends only the reference material. Both exist so you can see which works better. In continue mode your earlier request texts are sent again too.
 - Pasted text has secret-looking strings masked first (`[REDACTED]`, with a count) and is limited to 30,000 characters per item and 100,000 in total. Reference material is passed to the agent marked as untrusted data.
@@ -85,7 +85,7 @@ A collapsible right-hand panel (`Ctrl+J`) for working out what to do next with a
 - You get a notification when a request finishes while the window is in the background. Quitting the app stops running requests, and they show as "interrupted" on the next start.
 
 ## Skills
-Open **Skills** (**스킬**, bottom left, or `Ctrl+K` → "skills") to switch instructions on and off for the agents.
+Open **Skills** (bottom left, or `Ctrl+K` → "skills") to switch instructions on and off for the agents.
 
 - The two top boxes list skills installed for **Claude** (`~/.claude/skills`) and **Codex** (`~/.codex/skills`, or `CODEX_HOME`). Tick one to turn it on.
 - **Personal skills** below are instructions you keep inside the app. Type a name and text, or import a `SKILL.md`/`.md`/`.txt` file, then add it; remove it with ✕. Each personal skill can target Claude, Codex or both.
@@ -114,6 +114,7 @@ Open **Skills** (**스킬**, bottom left, or `Ctrl+K` → "skills") to switch in
 Shortcuts use physical keys (`e.code`), so they work while a Korean IME is active.
 
 ## Settings
+- Language: Auto (follow the OS), English or 한국어. The change applies immediately. The text of the agent prompts the app builds (planner and skills) follows it, and the planner asks the agent to answer in that language.
 - Claude `--safe-mode` (on by default)
 - Claude model (empty = Claude Code's default; aliases such as `sonnet`/`opus` or a full model ID are passed as `--model`)
 - Codex model (default `gpt-5.6-sol`; empty = Codex's own configured model)
@@ -161,14 +162,14 @@ AgentForge has no server and everything runs locally, but the `claude` and `code
 - It cannot tell whether existing tests actually exercise a new feature (Codex is asked to check), and since worktrees have no `node_modules`, projects that need dependencies may fail `npm test` (which blocks).
 - Default icon; no code signing; no auto-update.
 - Verification with real `claude`/`codex` end to end is limited. Most automated and E2E checks use fake agents.
-- The UI is Korean only for now.
+- The English texts were written without a native-speaker review, and the build and verify prompts that go to the agents stay in English or Korean as written (only the planner and skills text follow the UI language). Reports of awkward wording are welcome.
 
 ## Project layout
 ```
 src/main/       Electron main: git/worktree, pipeline, Best-of-N runner, planner runner, process management, notifications, state storage
 src/preload/    IPC API exposed to the renderer (allow-list)
 src/renderer/   React UI: App, BonView, DiffView, Palette, PlannerPanel, SkillsDlg
-src/shared/     pure logic shared by main/renderer: types, diff parser, attention rules, search, slot warnings, planner (prompt and proposal parser), skills
+src/shared/     pure logic shared by main/renderer: types, diff parser, attention rules, search, slot warnings, planner (prompt and proposal parser), skills, i18n (Korean source keys + English table, checked by test/i18n.test.ts)
 docs/           design docs (Korean)
 test/           vitest tests and the fake-agent fixture
 ```

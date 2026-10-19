@@ -113,6 +113,7 @@ npm test
 
 ## 설정
 설정 창에서 바꿀 수 있는 항목입니다.
+- 언어: 자동(운영체제 설정 따름) / English / 한국어. 바꾸면 바로 적용됩니다. 앱이 만드는 에이전트용 문구(계획 도우미, 스킬)도 이 언어를 따르고, 계획 도우미는 에이전트에게 그 언어로 답하라고 요청합니다.
 - Claude `--safe-mode` (기본 켜짐)
 - Claude 모델 (비우면 Claude Code 기본값. `sonnet`, `opus` 같은 별칭이나 전체 모델 ID를 `--model`로 전달)
 - Codex 모델 (기본 `gpt-5.6-sol`)
@@ -166,7 +167,7 @@ AgentForge 자체에는 서버가 없고 모든 것이 로컬에서 실행되지
 - 파이프라인에서 검증이 FAIL이어도 구현 단계를 다시 돌리는 경로가 없습니다(폐기 후 새 태스크).
 - 기존 테스트가 새 기능을 실제로 검증하는지는 알 수 없고(Codex가 확인), worktree에 `node_modules`가 없어 의존성이 필요한 프로젝트는 `npm test`가 실패(=차단)할 수 있습니다.
 - 기본 아이콘을 사용하고, 코드 서명과 자동 업데이트가 없습니다.
-- UI는 한국어뿐입니다(영어 UI 예정).
+- 영어 문구는 원어민 검수를 받지 않았고, 에이전트로 가는 구현·검증 프롬프트는 쓰인 그대로(영어 또는 한국어)입니다. 계획 도우미와 스킬 문구만 UI 언어를 따릅니다. 어색한 표현은 알려 주세요.
 - 진짜 `claude`/`codex`로 끝까지 돌린 UI 검증은 제한적입니다. 대부분의 자동·E2E 검증은 가짜 에이전트로 했습니다.
 
 ## 구조
@@ -174,7 +175,7 @@ AgentForge 자체에는 서버가 없고 모든 것이 로컬에서 실행되지
 src/main/       Electron 메인: git/worktree, 파이프라인, Best-of-N 실행, 계획 도우미 실행기, 프로세스 관리, 알림, 상태 저장
 src/preload/    렌더러에 노출하는 IPC API (허용 목록 방식)
 src/renderer/   React UI: App, BonView, DiffView, Palette, PlannerPanel
-src/shared/     main/renderer 공용 순수 로직: 타입, diff 파서, 알림 판정, 검색, 슬롯 경고, 계획 도우미(프롬프트·제안 파서)
+src/shared/     main/renderer 공용 순수 로직: 타입, diff 파서, 알림 판정, 검색, 슬롯 경고, 계획 도우미(프롬프트·제안 파서), 스킬, i18n(한국어 원문 키 + 영어 표, test/i18n.test.ts가 누락 검사)
 docs/           설계 문서 (계획 도우미)
 test/           vitest 테스트와 가짜 에이전트 fixture
 ```
