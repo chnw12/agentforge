@@ -18,7 +18,7 @@ Every agent works only inside its own worktree and `af/<id>` branch. Merging alw
 - Your own account or API key for each CLI (see [AI usage notes](#ai-usage-notes)).
 
 ## Install
-**Installer**: download `AgentForge Setup <version>.exe` from the repository's Releases page and run it. The installer is per-user and lets you choose the install folder.
+**Installer**: download `AgentForge.Setup.<version>.exe` (GitHub shows the spaces in the file name as dots) from the [Releases page](https://github.com/chnw12/agentforge/releases/latest) and run it. The installer is per-user and lets you choose the install folder.
 
 The installer is **not code-signed**, so Windows SmartScreen may warn you. Choose **More info → Run anyway** if you trust the build, or build it yourself from source (below).
 
