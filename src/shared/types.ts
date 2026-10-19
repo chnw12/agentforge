@@ -71,6 +71,59 @@ export interface Task {
   mode?: TaskMode // absent = 'pipeline' (tasks created before Best-of-N existed)
   slots?: Slot[] // best-of-n only; stages is empty and branch is '' for these tasks
   selectedSlot?: string // best-of-n only: slot merged by the user
+  origin?: TaskOrigin // set when the task was created from a planner proposal
+  createdAt: number
+}
+
+/** Where a task came from: the planner thread/message whose proposal the user turned into this task. */
+export interface TaskOrigin { threadId: string; messageId: string }
+
+/** One piece of context the user gave the planner (a pasted result or a digest of a slot/stage/task). Stored as a snapshot. */
+export interface PlanContextItem {
+  id: string
+  label: string
+  kind: 'paste' | 'slot' | 'stage' | 'task' | 'diff'
+  text: string
+  source?: { taskId: string; slotId?: string; stage?: StageKind }
+  truncated?: boolean
+  redacted?: number // how many secret-looking strings were masked before it was stored
+}
+
+/** The structured next-task suggestion an agent returns. Only a proposal: a task exists only after the user creates it. */
+export interface PlanProposal {
+  title: string
+  prompt: string // self-contained request for the new task
+  mode: TaskMode // the agent's recommendation; the card preselects it and the user may change it
+  modeReason?: string
+  slotAgents: AgentKind[] // used when mode is best-of-n (2..3)
+  rationale?: string
+  risks: string[]
+  questions: string[]
+}
+
+export type PlanMessageStatus = 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
+export interface PlanMessage {
+  id: string
+  role: 'user' | 'agent'
+  agent: AgentKind
+  text: string
+  status: PlanMessageStatus
+  proposal?: PlanProposal
+  proposalError?: string
+  createdTaskIds: string[]
+  createdAt: number
+}
+
+/** continue = earlier turns are sent again with each request; fresh = every request starts from the contexts only. */
+export type PlanConversationMode = 'continue' | 'fresh'
+export interface PlanThread {
+  id: string
+  projectId: string
+  title: string
+  agent: AgentKind
+  conversation: PlanConversationMode
+  contexts: PlanContextItem[]
+  messages: PlanMessage[]
   createdAt: number
 }
 
@@ -87,7 +140,9 @@ export interface Settings {
 
 export interface CliInfo { name: string; path: string | null; version: string | null; error?: string }
 
-export interface AppState { projects: Project[]; tasks: Task[]; settings: Settings }
+export interface AppState { projects: Project[]; tasks: Task[]; settings: Settings; planners: PlanThread[] }
+
+export interface PlannerLogEvent { threadId: string; line: string }
 
 export const DEFAULT_SETTINGS: Settings = {
   claudeSafeMode: true,
@@ -111,7 +166,16 @@ export interface Api {
   getState(): Promise<AppState>
   cliInfo(): Promise<CliInfo[]>
   pickProject(): Promise<AppState>
-  createTask(input: { projectId: string; title: string; prompt: string; reTarget?: string; mode?: TaskMode; slotAgents?: AgentKind[] }): Promise<AppState>
+  createTask(input: { projectId: string; title: string; prompt: string; reTarget?: string; mode?: TaskMode; slotAgents?: AgentKind[]; origin?: TaskOrigin }): Promise<AppState>
+  plannerCreate(projectId: string, title?: string): Promise<AppState>
+  plannerDelete(threadId: string): Promise<AppState>
+  plannerSetOptions(threadId: string, opts: { agent?: AgentKind; conversation?: PlanConversationMode; title?: string }): Promise<AppState>
+  plannerAddContext(threadId: string, item: { label: string; kind: PlanContextItem['kind']; text: string; source?: PlanContextItem['source'] }): Promise<AppState>
+  plannerRemoveContext(threadId: string, itemId: string): Promise<AppState>
+  plannerSend(threadId: string, text: string): Promise<AppState>
+  plannerCancel(threadId: string): Promise<AppState>
+  onPlannerLog(cb: (e: PlannerLogEvent) => void): () => void
+  onFocusPlanner(cb: (threadId: string) => void): () => void
   runNext(taskId: string): Promise<AppState> // runs the next pending stage (approval gate = user click)
   cancel(taskId: string): Promise<AppState>
   getDiff(taskId: string): Promise<string>

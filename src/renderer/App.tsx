@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentKind, Api, AppState, CliInfo, Settings, Stage, StageKind, Task, TaskMode } from '../shared/types'
+import type { AgentKind, Api, AppState, CliInfo, PlanContextItem, Settings, Stage, StageKind, Task, TaskMode, TaskOrigin } from '../shared/types'
 import { BonView } from './BonView'
 import { DiffView } from './DiffView'
 import { Palette, ShortcutHelp, type PaletteItem } from './Palette'
+import { PlannerPanel, type ProposalDraft } from './PlannerPanel'
+import { stageDigest, taskDigest } from '../shared/planner'
 import { attention, attentionKey, progress } from '../shared/attention'
 
 declare global {
@@ -40,6 +42,11 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showPal, setShowPal] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [showPlanner, setShowPlanner] = useState(false)
+  const [planThreadId, setPlanThreadId] = useState<string | null>(null)
+  const [plannerLive, setPlannerLive] = useState<Record<string, string>>({})
+  const [draft, setDraft] = useState<ProposalDraft | null>(null)
+  const [draftKey, setDraftKey] = useState(0)
   const [live, setLive] = useState<Record<string, string[]>>({})
   const [stored, setStored] = useState('')
   const [diff, setDiff] = useState('')
@@ -49,6 +56,8 @@ export function App() {
     void api().cliInfo().then(setCli)
     const off1 = api().onState(setState)
     const off3 = api().onFocusTask(setSelTask)
+    const off4 = api().onPlannerLog((e) => setPlannerLive((m) => ({ ...m, [e.threadId]: e.line })))
+    const off5 = api().onFocusPlanner((id) => { setPlanThreadId(id); setShowPlanner(true) })
     const off2 = api().onLog((e) => {
       const k = `${e.taskId}:${e.slot ?? e.stage}`
       setLive((m) => {
@@ -56,7 +65,7 @@ export function App() {
         return { ...m, [k]: arr.length > MAX_LIVE_LINES ? arr.slice(-MAX_LIVE_LINES) : arr }
       })
     })
-    return () => { off1(); off2(); off3() }
+    return () => { off1(); off2(); off3(); off4(); off5() }
   }, [])
 
   const task = useMemo(() => state?.tasks.find((t) => t.id === selTask) ?? null, [state, selTask])
@@ -80,6 +89,8 @@ export function App() {
 
   const openNew = useCallback(() => {
     if (!state?.projects.length) { setErr('git 저장소 폴더를 먼저 추가하세요'); return }
+    setDraft(null)
+    setDraftKey((k) => k + 1)
     setNewProject(task?.projectId ?? state.projects[0]!.id)
     setShowNew(true)
   }, [state, task?.projectId])
@@ -98,6 +109,7 @@ export function App() {
     const actions: PaletteItem[] = [
       { id: 'action:new', kind: 'action', title: '새 태스크', text: '새 태스크 new task 만들기' },
       { id: 'action:settings', kind: 'action', title: '설정', text: '설정 settings' },
+      { id: 'action:planner', kind: 'action', title: '계획 도우미 열기/닫기', text: '계획 도우미 planner 설계 다음 작업 plan' },
       { id: 'action:help', kind: 'action', title: '단축키 도움말', text: '단축키 도움말 shortcuts help keyboard' }
     ]
     return [...tasks, ...actions]
@@ -107,6 +119,7 @@ export function App() {
     if (it.id === 'action:new') openNew()
     else if (it.id === 'action:settings') setShowSettings(true)
     else if (it.id === 'action:help') setShowHelp(true)
+    else if (it.id === 'action:planner') setShowPlanner((v) => !v)
     else setSelTask(it.id)
   }
 
@@ -123,6 +136,7 @@ export function App() {
       if (mod && !e.altKey && !e.shiftKey && e.code === 'KeyK') { e.preventDefault(); setShowHelp(false); setShowPal((v) => !v); return }
       if (anyModal) return
       if (mod && !e.altKey && e.code === 'KeyN') { e.preventDefault(); openNew(); return }
+      if (mod && !e.altKey && e.code === 'KeyJ') { e.preventDefault(); setShowPlanner((v) => !v); return }
       if (mod && e.code === 'Comma') { e.preventDefault(); setShowSettings(true); return }
       if (mod && e.code === 'Slash') { e.preventDefault(); setShowHelp(true); return }
       if (e.altKey && !mod && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
@@ -152,9 +166,32 @@ export function App() {
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [anyRunning])
-  const run = useCallback(async (fn: () => Promise<AppState>) => {
+  // runOk tells the caller whether the call succeeded (the planner keeps its input when it failed)
+  const runOk = useCallback(async (fn: () => Promise<AppState>): Promise<boolean> => {
     setErr('')
-    try { setState(await fn()) } catch (e) { setErr(cleanErr(e)) }
+    try { setState(await fn()); return true } catch (e) { setErr(cleanErr(e)); return false }
+  }, [])
+  const run = useCallback(async (fn: () => Promise<AppState>) => { await runOk(fn) }, [runOk])
+
+  // Sends a digest to the planner thread of that project (creating one if needed) and opens the panel.
+  const addToPlanner = useCallback(async (item: Omit<PlanContextItem, 'id'>, projectId: string) => {
+    setErr('')
+    try {
+      let s = await api().getState()
+      let th = s.planners.find((t) => t.id === planThreadId && t.projectId === projectId) ?? s.planners.find((t) => t.projectId === projectId)
+      if (!th) { s = await api().plannerCreate(projectId); th = s.planners[0] }
+      if (!th) throw new Error('계획 스레드를 만들지 못했습니다')
+      setState(await api().plannerAddContext(th.id, { label: item.label, kind: item.kind, text: item.text, source: item.source }))
+      setPlanThreadId(th.id)
+      setShowPlanner(true)
+    } catch (e) { setErr(cleanErr(e)) }
+  }, [planThreadId])
+
+  const openDraft = useCallback((d: ProposalDraft) => {
+    setNewProject(d.projectId)
+    setDraft(d)
+    setDraftKey((k) => k + 1)
+    setShowNew(true)
   }, [])
 
   useEffect(() => {
@@ -226,7 +263,7 @@ ${leftover.map((t) => '- ' + (t.branch || 'best-of-n') + ' ' + t.title).join(NL)
   const verifyFailed = verifyStage?.status === 'failed' && !blocked
 
   return (
-    <div className="app">
+    <div className={'app' + (showPlanner ? ' with-planner' : '')}>
       <aside className="side">
         <div className="brand">AgentForge</div>
         <button className="btn" onClick={() => run(() => api().pickProject())}>+ 프로젝트 추가</button>
@@ -289,10 +326,14 @@ ${leftover.map((t) => '- ' + (t.branch || 'best-of-n') + ' ' + t.title).join(NL)
                 <h1>{task.title}</h1>
                 <div className="muted small">{task.mode === 'best-of-n' ? `Best-of-N ${task.slots?.length ?? 0}슬롯` : `브랜치 ${task.branch}`} · base {task.baseCommit.slice(0, 8)}{task.dirtyAtCreate ? ' · ⚠ 생성 시 작업트리에 미커밋 변경이 있었고 worktree에는 포함되지 않음' : ''}{task.reTarget ? ` · RE 대상 ${task.reTarget}` : ''}</div>
               </div>
-              <span className={'badge big ' + task.status}>{STATUS_LABEL[task.status]}</span>
+              <div className="head-right">
+                {task.origin && (() => { const th = state.planners.find((x) => x.id === task.origin!.threadId); return th ? <button className="link" title="이 태스크를 만든 계획 도우미 스레드 열기" onClick={() => { setPlanThreadId(th.id); setShowPlanner(true) }}>계획 출처: {th.title} ↗</button> : <span className="muted small">계획 출처: (삭제된 스레드)</span> })()}
+                <button className="btn sm" title="이 태스크의 요청과 상태를 계획 도우미 컨텍스트에 추가" onClick={() => void addToPlanner(taskDigest(task), task.projectId)}>계획 도우미로 보내기</button>
+                <span className={'badge big ' + task.status}>{STATUS_LABEL[task.status]}</span>
+              </div>
             </header>
 
-            {task.mode === 'best-of-n' ? <BonView task={task} live={live} run={run} /> : <>
+            {task.mode === 'best-of-n' ? <BonView task={task} live={live} run={run} onPlan={(item) => addToPlanner(item, task.projectId)} /> : <>
             <div className="stages">
               {task.stages.map((s) => (
                 <button key={s.kind} className={'stage' + (s.kind === selStage ? ' sel' : '')} onClick={() => setSelStage(s.kind)}>
@@ -319,6 +360,7 @@ ${leftover.map((t) => '- ' + (t.branch || 'best-of-n') + ' ' + t.title).join(NL)
               {!['merged', 'discarded'].includes(task.status) && !busy && (
                 <button className="btn danger" onClick={() => confirm('worktree와 브랜치를 삭제합니다. 되돌릴 수 없습니다.') && run(() => api().discard(task.id))}>폐기</button>
               )}
+              {stage && <button className="btn" title="선택한 단계의 결과를 계획 도우미 컨텍스트에 추가" onClick={() => void addToPlanner(stageDigest(task, stage), task.projectId)}>선택한 단계를 계획 도우미에 추가</button>}
             </div>
 
             {(blocked || verifyFailed) && (
@@ -349,7 +391,29 @@ ${leftover.map((t) => '- ' + (t.branch || 'best-of-n') + ' ' + t.title).join(NL)
         )}
       </main>
 
-      {showNew && state && <NewTask state={state} projectId={newProject} onClose={() => setShowNew(false)} onCreate={async (i) => { await run(() => api().createTask(i)); setShowNew(false) }} />}
+      {showPlanner && state && (
+        <PlannerPanel
+          state={state} cli={cli} threadId={planThreadId} onSelectThread={setPlanThreadId} live={plannerLive}
+          currentProjectId={task?.projectId ?? state.projects[0]?.id ?? ''} currentTask={task}
+          run={runOk} onClose={() => setShowPlanner(false)} onDraft={openDraft} onOpenTask={setSelTask}
+        />
+      )}
+
+      {showNew && state && (
+        <NewTask
+          key={draftKey} state={state} projectId={newProject} initial={draft ?? undefined}
+          onClose={() => { setShowNew(false); setDraft(null) }}
+          onCreate={async (i) => {
+            // a task made from a planner proposal is opened right away so the user can continue there
+            const made = await runOk(async () => {
+              const s = await api().createTask(i)
+              if (i.origin && s.tasks[0]) setSelTask(s.tasks[0].id)
+              return s
+            })
+            if (made) { setShowNew(false); setDraft(null) }
+          }}
+        />
+      )}
       {showPal && <Palette items={paletteItems} onPick={pickPalette} onClose={() => setShowPal(false)} />}
       {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
       {showSettings && state && <SettingsDlg s={state.settings} onClose={() => setShowSettings(false)} onSave={async (s) => { await run(() => api().saveSettings(s)); setShowSettings(false) }} />}
@@ -404,20 +468,22 @@ function LogView({ lines }: { lines: string[] }) {
   return <pre ref={ref} className="log">{lines.join('\n') || '(로그 없음)'}</pre>
 }
 
-function NewTask(p: { state: AppState; projectId: string; onClose: () => void; onCreate: (i: { projectId: string; title: string; prompt: string; reTarget?: string; mode?: TaskMode; slotAgents?: AgentKind[] }) => Promise<void> }) {
-  const [projectId, setProjectId] = useState(p.projectId || p.state.projects[0]?.id || '')
-  const [title, setTitle] = useState('')
-  const [prompt, setPrompt] = useState('')
+function NewTask(p: { state: AppState; projectId: string; initial?: ProposalDraft; onClose: () => void; onCreate: (i: { projectId: string; title: string; prompt: string; reTarget?: string; mode?: TaskMode; slotAgents?: AgentKind[]; origin?: TaskOrigin }) => Promise<void> }) {
+  const [projectId, setProjectId] = useState(p.initial?.projectId ?? (p.projectId || p.state.projects[0]?.id || ''))
+  const [title, setTitle] = useState(p.initial?.title ?? '')
+  const [prompt, setPrompt] = useState(p.initial?.prompt ?? '')
   const [re, setRe] = useState(false)
   const [target, setTarget] = useState('')
-  const [mode, setMode] = useState<TaskMode>('pipeline')
-  const [agents, setAgents] = useState<AgentKind[]>(['claude', 'codex'])
+  const [mode, setMode] = useState<TaskMode>(p.initial?.mode ?? 'pipeline')
+  const [agents, setAgents] = useState<AgentKind[]>(p.initial?.slotAgents ?? ['claude', 'codex'])
+  const origin = p.initial?.origin
   const ok = projectId && title.trim() && prompt.trim() && (mode === 'best-of-n' || !re || target.trim())
   return (
     <div className="modal-bg" onClick={p.onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>새 태스크</h2>
-        <label>프로젝트<select value={projectId} onChange={(e) => setProjectId(e.target.value)}>{p.state.projects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+        {p.initial && <div className="warnbar small" role="note" style={{ borderColor: 'var(--accent)', background: '#1d2736', color: 'var(--text)' }}>계획 도우미의 제안으로 미리 채웠습니다. 내용과 모드를 확인하고 [생성]을 눌러야 태스크가 만들어집니다.</div>}
+        <label>프로젝트<select value={projectId} disabled={!!origin} onChange={(e) => setProjectId(e.target.value)}>{p.state.projects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
         <label>제목<input value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} /></label>
         <label>요청 내용<textarea rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} /></label>
         <div className="radio-row">
@@ -435,7 +501,7 @@ function NewTask(p: { state: AppState; projectId: string; onClose: () => void; o
         )}
         {mode === 'pipeline' && <label className="chk"><input type="checkbox" checked={re} onChange={(e) => setRe(e.target.checked)} /> 리버스 엔지니어링 모드 (rea 분석 결과를 설계 단계에 주입)</label>}
         {mode === 'pipeline' && re && <label>분석 대상 절대경로<input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="C:\path\to\app.asar 또는 폴더" /></label>}
-        <div className="row"><button className="btn" onClick={p.onClose}>취소</button><button className="btn primary" disabled={!ok} onClick={() => p.onCreate(mode === 'best-of-n' ? { projectId, title: title.trim(), prompt: prompt.trim(), mode, slotAgents: agents } : { projectId, title: title.trim(), prompt: prompt.trim(), reTarget: re ? target.trim() : undefined })}>생성</button></div>
+        <div className="row"><button className="btn" onClick={p.onClose}>취소</button><button className="btn primary" disabled={!ok} onClick={() => p.onCreate(mode === 'best-of-n' ? { projectId, title: title.trim(), prompt: prompt.trim(), mode, slotAgents: agents, origin } : { projectId, title: title.trim(), prompt: prompt.trim(), reTarget: re ? target.trim() : undefined, origin })}>생성</button></div>
       </div>
     </div>
   )

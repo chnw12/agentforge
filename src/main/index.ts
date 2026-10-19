@@ -1,10 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { transitions, type NotifyEvent } from './notify'
+import { cancelPlanner, isPlannerRunning, killAllPlanner, runPlanner } from './planner'
+import { PLAN_LIMITS, countRedactions, pickHistory, sanitizeText, truncateText } from '../shared/planner'
+import { redact } from './redact'
 import { promises as fs, existsSync } from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
-import { DEFAULT_SETTINGS, type AgentKind, type AppState, type CliInfo, type Settings, type StageKind, type Task, type TaskMode } from '../shared/types'
+import { DEFAULT_SETTINGS, type AgentKind, type AppState, type CliInfo, type Settings, type StageKind, type Task, type TaskMode, type PlanContextItem, type PlanMessage, type PlanThread, type TaskOrigin, type PlanConversationMode } from '../shared/types'
 import { slotWarning } from '../shared/slot'
 import { getState, loadState, saveState, saveStateSync } from './store'
 import { capture, resolveExe } from './proc'
@@ -19,7 +22,7 @@ let win: BrowserWindow | null = null
 const DEV_URL = process.env['ELECTRON_RENDERER_URL']
 const STAGE_KINDS: StageKind[] = ['design', 'review', 'build', 'verify']
 const isRunning = (id: string) => isPipelineRunning(id) || isBonRunning(id)
-const killAll = () => { killAllPipeline(); killAllBon() }
+const killAll = () => { killAllPipeline(); killAllBon(); killAllPlanner() }
 const isBon = (t: Task) => t.mode === 'best-of-n'
 
 let lastStatuses: Map<string, string> | null = null
@@ -44,6 +47,21 @@ function notifyUser(e: NotifyEvent): void {
     win.show()
     win.focus()
     win.webContents.send('focus-task', e.taskId)
+  })
+  n.show()
+}
+
+function notifyPlanner(threadId: string, title: string, body: string): void {
+  if (!getState().settings.notifications || !win || win.isDestroyed() || win.isFocused()) return
+  win.flashFrame(true)
+  if (!Notification.isSupported()) return
+  const n = new Notification({ title: `AgentForge · ${title}`, body })
+  n.on('click', () => {
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    win.webContents.send('focus-planner', threadId)
   })
   n.show()
 }
@@ -73,6 +91,26 @@ async function exclusive<T>(id: string, fn: () => Promise<T> | T): Promise<T> {
   } finally {
     taskBusy.delete(id)
   }
+}
+
+function findThread(id: unknown): PlanThread {
+  const th = typeof id === 'string' && ID_RE.test(id) ? getState().planners.find((x) => x.id === id) : undefined
+  if (!th) throw new Error('unknown planner thread')
+  return th
+}
+
+/** An origin is only accepted when it points at a real proposal the user can see in the planner. */
+function checkOrigin(o: unknown): TaskOrigin {
+  const v = o as Partial<TaskOrigin> | null
+  const th = findThread(v?.threadId)
+  const m = th.messages.find((x) => x.id === v?.messageId)
+  if (!m || !m.proposal) throw new Error('invalid origin: 제안이 없는 메시지입니다')
+  return { threadId: th.id, messageId: m.id }
+}
+function linkOrigin(taskId: string, origin: TaskOrigin | undefined): void {
+  if (!origin) return
+  const m = getState().planners.find((x) => x.id === origin.threadId)?.messages.find((x) => x.id === origin.messageId)
+  if (m && !m.createdTaskIds.includes(taskId)) m.createdTaskIds.push(taskId)
 }
 
 function findTask(id: unknown): Task {
@@ -146,7 +184,7 @@ function registerIpc(): void {
     return getState()
   })
 
-  handle('task:create', async (input: { projectId: string; title: string; prompt: string; reTarget?: string; mode?: TaskMode; slotAgents?: AgentKind[] }) => {
+  handle('task:create', async (input: { projectId: string; title: string; prompt: string; reTarget?: string; mode?: TaskMode; slotAgents?: AgentKind[]; origin?: TaskOrigin }) => {
     const project = getState().projects.find((p) => p.id === input?.projectId)
     if (!project) throw new Error('unknown project')
     const title = str(input.title, 120, 'title')
@@ -157,6 +195,7 @@ function registerIpc(): void {
       if (!path.isAbsolute(rt) || !existsSync(rt)) throw new Error('RE 대상은 존재하는 절대경로여야 합니다')
       reTarget = rt
     }
+    const origin = input.origin === undefined ? undefined : checkOrigin(input.origin)
     const id = newId()
     const dirty = await isDirty(project.path)
     if (input.mode === 'best-of-n') {
@@ -167,16 +206,18 @@ function registerIpc(): void {
       const { slots, base } = await createSlots(project.path, agents)
       getState().tasks.unshift({
         id, projectId: project.id, title, prompt, status: 'created', branch: '', baseCommit: base,
-        dirtyAtCreate: dirty, stages: [], mode: 'best-of-n', slots, createdAt: Date.now()
+        dirtyAtCreate: dirty, stages: [], mode: 'best-of-n', slots, origin, createdAt: Date.now()
       })
+      linkOrigin(id, origin)
       broadcast()
       return getState()
     }
     const { branch, base } = await withRepoLock(project.path, () => addWorktree(project.path, id))
     getState().tasks.unshift({
       id, projectId: project.id, title, prompt, reTarget, status: 'created', branch, baseCommit: base,
-      dirtyAtCreate: dirty, stages: newTaskStages(), createdAt: Date.now()
+      dirtyAtCreate: dirty, stages: newTaskStages(), origin, createdAt: Date.now()
     })
+    linkOrigin(id, origin)
     broadcast()
     return getState()
   })
@@ -233,6 +274,99 @@ function registerIpc(): void {
     const t = findTask(id)
     const s = findSlot(t, slotId)
     return fs.readFile(slotLogFile(t.id, s.id), 'utf8').catch(() => '')
+  })
+
+  // ---- planner: paste results -> an agent designs the next task -> the user decides whether to create it ----
+  const CONTEXT_KINDS: PlanContextItem['kind'][] = ['paste', 'slot', 'stage', 'task', 'diff']
+  const STAGES: StageKind[] = ['design', 'review', 'build', 'verify']
+  const MAX_CONTEXTS = 20
+  const MAX_THREADS = 100
+  const agentOf = (v: unknown): AgentKind => { if (v !== 'claude' && v !== 'codex') throw new Error('에이전트는 claude 또는 codex여야 합니다'); return v }
+
+  handle('planner:create', (projectId: string, title?: string) => {
+    const project = getState().projects.find((p) => p.id === projectId)
+    if (!project) throw new Error('unknown project')
+    if (getState().planners.length >= MAX_THREADS) throw new Error(`계획 스레드는 최대 ${MAX_THREADS}개입니다. 오래된 스레드를 삭제하세요`)
+    getState().planners.unshift({ id: newId(), projectId: project.id, title: title === undefined ? '새 계획' : str(title, PLAN_LIMITS.title, 'title'), agent: 'claude', conversation: 'continue', contexts: [], messages: [], createdAt: Date.now() })
+    broadcast()
+    return getState()
+  })
+  handle('planner:delete', (threadId: string) => {
+    const th = findThread(threadId)
+    if (isPlannerRunning(th.id)) throw new Error('실행 중인 스레드는 삭제할 수 없습니다. 먼저 중지하세요')
+    getState().planners = getState().planners.filter((x) => x.id !== th.id)
+    void fs.rm(path.join(app.getPath('userData'), 'planner', th.id), { recursive: true, force: true }).catch(() => undefined)
+    broadcast()
+    return getState()
+  })
+  handle('planner:setOptions', (threadId: string, opts: { agent?: AgentKind; conversation?: PlanConversationMode; title?: string }) => {
+    const th = findThread(threadId)
+    if (opts?.title !== undefined) th.title = str(opts.title, PLAN_LIMITS.title, 'title').trim() || th.title
+    if (opts?.agent !== undefined || opts?.conversation !== undefined) {
+      if (isPlannerRunning(th.id)) throw new Error('실행 중에는 에이전트와 대화 방식을 바꿀 수 없습니다')
+      if (opts.agent !== undefined) th.agent = agentOf(opts.agent)
+      if (opts.conversation !== undefined) {
+        if (opts.conversation !== 'continue' && opts.conversation !== 'fresh') throw new Error('invalid conversation mode')
+        th.conversation = opts.conversation
+      }
+    }
+    broadcast()
+    return getState()
+  })
+  handle('planner:addContext', (threadId: string, item: { label: string; kind: PlanContextItem['kind']; text: string; source?: PlanContextItem['source'] }) => {
+    const th = findThread(threadId)
+    if (th.contexts.length >= MAX_CONTEXTS) throw new Error(`컨텍스트는 최대 ${MAX_CONTEXTS}개입니다. 불필요한 항목을 제거하세요`)
+    if (!CONTEXT_KINDS.includes(item?.kind)) throw new Error('invalid context kind')
+    const label = str(item.label, 200, 'label')
+    if (typeof item.text !== 'string' || !item.text.trim() || item.text.length > 2_000_000) throw new Error('invalid context text')
+    let source: PlanContextItem['source']
+    if (item.source) {
+      if (!ID_RE.test(item.source.taskId)) throw new Error('invalid context source')
+      if (item.source.slotId !== undefined && !ID_RE.test(item.source.slotId)) throw new Error('invalid context source')
+      if (item.source.stage !== undefined && !STAGES.includes(item.source.stage)) throw new Error('invalid context source')
+      source = { taskId: item.source.taskId, slotId: item.source.slotId, stage: item.source.stage }
+    }
+    // secrets are masked before anything is stored or sent to an agent
+    const masked = redact(sanitizeText(item.text))
+    const { text, truncated } = truncateText(masked.trim(), PLAN_LIMITS.item)
+    th.contexts.push({ id: newId(), label, kind: item.kind, text, source, truncated, redacted: countRedactions(masked) - countRedactions(item.text) })
+    broadcast()
+    return getState()
+  })
+  handle('planner:removeContext', (threadId: string, itemId: string) => {
+    const th = findThread(threadId)
+    th.contexts = th.contexts.filter((c) => c.id !== itemId)
+    broadcast()
+    return getState()
+  })
+  handle('planner:send', (threadId: string, text: string) => {
+    const th = findThread(threadId)
+    if (isPlannerRunning(th.id)) throw new Error('이미 실행 중입니다')
+    const project = getState().projects.find((p) => p.id === th.projectId)
+    if (!project) throw new Error('이 스레드의 프로젝트가 목록에서 제거되었습니다')
+    if (typeof text !== 'string' || !text.trim() || text.length > PLAN_LIMITS.goal) throw new Error(`하고 싶은 일은 1~${PLAN_LIMITS.goal}자여야 합니다`)
+    if (!resolveExe(th.agent)) throw new Error(`${th.agent}.exe를 찾을 수 없습니다 (PATH의 .exe만 지원)`)
+    const goal = redact(sanitizeText(text)).trim()
+    const history = th.conversation === 'continue' ? pickHistory(th.messages) : []
+    const now = Date.now()
+    th.messages.push({ id: newId(), role: 'user', agent: th.agent, text: goal, status: 'done', createdTaskIds: [], createdAt: now })
+    const reply: PlanMessage = { id: newId(), role: 'agent', agent: th.agent, text: '', status: 'running', createdTaskIds: [], createdAt: now + 1 }
+    th.messages.push(reply)
+    void runPlanner({
+      thread: th, message: reply, goal, history, projectPath: project.path, projectName: project.name, settings: getState().settings,
+      emit: (line) => win?.webContents.send('planner-log', { threadId: th.id, line }),
+      onChange: broadcast
+    }).then(() => {
+      if (reply.status === 'done') notifyPlanner(th.id, reply.proposal ? '계획 제안 도착' : '계획 응답 도착', th.title)
+      else if (reply.status === 'failed') notifyPlanner(th.id, '계획 요청 실패', th.title)
+    })
+    broadcast()
+    return getState()
+  })
+  handle('planner:cancel', (threadId: string) => {
+    const th = findThread(threadId)
+    cancelPlanner(th.id)
+    return getState()
   })
 
   // Per-slot controls. Agents are one-shot processes, so "steering" means: stop one slot, queue an instruction

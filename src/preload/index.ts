@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Api, AppState, StageLogEvent } from '../shared/types'
+import type { Api, AppState, PlannerLogEvent, StageLogEvent } from '../shared/types'
 
 // Explicit allowlist: the renderer can only call these named operations.
 const api: Api = {
@@ -7,6 +7,13 @@ const api: Api = {
   cliInfo: () => ipcRenderer.invoke('cli:info'),
   pickProject: () => ipcRenderer.invoke('project:pick'),
   createTask: (i) => ipcRenderer.invoke('task:create', i),
+  plannerCreate: (projectId, title) => ipcRenderer.invoke('planner:create', projectId, title),
+  plannerDelete: (id) => ipcRenderer.invoke('planner:delete', id),
+  plannerSetOptions: (id, opts) => ipcRenderer.invoke('planner:setOptions', id, opts),
+  plannerAddContext: (id, item) => ipcRenderer.invoke('planner:addContext', id, item),
+  plannerRemoveContext: (id, itemId) => ipcRenderer.invoke('planner:removeContext', id, itemId),
+  plannerSend: (id, text) => ipcRenderer.invoke('planner:send', id, text),
+  plannerCancel: (id) => ipcRenderer.invoke('planner:cancel', id),
   runNext: (id) => ipcRenderer.invoke('task:runNext', id),
   cancel: (id) => ipcRenderer.invoke('task:cancel', id),
   getDiff: (id) => ipcRenderer.invoke('task:diff', id),
@@ -32,6 +39,16 @@ const api: Api = {
     const h = (_e: unknown, s: AppState) => cb(s)
     ipcRenderer.on('state', h)
     return () => ipcRenderer.removeListener('state', h)
+  },
+  onPlannerLog: (cb) => {
+    const h = (_e: unknown, e: PlannerLogEvent) => cb(e)
+    ipcRenderer.on('planner-log', h)
+    return () => ipcRenderer.removeListener('planner-log', h)
+  },
+  onFocusPlanner: (cb) => {
+    const h = (_e: unknown, id: string) => cb(id)
+    ipcRenderer.on('focus-planner', h)
+    return () => ipcRenderer.removeListener('focus-planner', h)
   },
   onFocusTask: (cb) => {
     const h = (_e: unknown, id: string) => cb(id)

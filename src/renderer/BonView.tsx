@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Api, AppState, Slot, Task } from '../shared/types'
+import type { Api, AppState, PlanContextItem, Slot, Task } from '../shared/types'
+import { slotDigest } from '../shared/planner'
 import { slotWarning } from '../shared/slot'
 import { diffTotals, parseDiff } from '../shared/diff'
 import { DiffView } from './DiffView'
@@ -17,7 +18,7 @@ const TAB_LABEL ={ diff: 'diff', tests: '테스트', result: '요약', log: '로
 type Run =(fn: () => Promise<AppState>) => Promise<void>
 const cleanErr = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-export function BonView({ task, live, run }: { task: Task; live: Record<string, string[]>; run: Run }) {
+export function BonView({ task, live, run, onPlan }: { task: Task; live: Record<string, string[]>; run: Run; onPlan: (item: Omit<PlanContextItem, 'id'>) => void }) {
   const slots = task.slots ?? []
   const running = task.status === 'running'
   const canRun = task.status === 'created' || task.status === 'failed'
@@ -41,7 +42,7 @@ export function BonView({ task, live, run }: { task: Task; live: Record<string, 
       <BonCompare task={task} diffs={diffs} />
       <div className="bon-grid" style={{ gridTemplateColumns: `repeat(${slots.length}, minmax(0, 1fr))` }}>
         {slots.map((s, i) => (
-          <SlotPanel key={s.id} task={task} slot={s} index={i} diff={diffs[s.id]} live={live[`${task.id}:${s.id}`]} canPick={canPick} run={run} />
+          <SlotPanel key={s.id} task={task} slot={s} index={i} diff={diffs[s.id]} live={live[`${task.id}:${s.id}`]} canPick={canPick} run={run} onPlan={onPlan} />
         ))}
       </div>
     </>
@@ -154,7 +155,7 @@ function BonCompare({ task, diffs }: { task: Task; diffs: Record<string, string>
   )
 }
 
-function SlotPanel({ task, slot, index, diff, live, canPick, run }: { task: Task; slot: Slot; index: number; diff?: string; live?: string[]; canPick: boolean; run: Run }) {
+function SlotPanel({ task, slot, index, diff, live, canPick, run, onPlan }: { task: Task; slot: Slot; index: number; diff?: string; live?: string[]; canPick: boolean; run: Run; onPlan: (item: Omit<PlanContextItem, 'id'>) => void }) {
   const [tab, setTab] = useState<'diff' | 'tests' | 'result' | 'log'>('diff')
   const [stored, setStored] = useState('')
   const [note, setNote] = useState('')
@@ -173,7 +174,18 @@ function SlotPanel({ task, slot, index, diff, live, canPick, run }: { task: Task
     return () => { stale = true }
   }, [task.id, slot.id, tab, slot.status])
 
-  const tot = useMemo(() => diffTotals(parseDiff(diff ?? '').files), [diff])
+  const parsedFiles = useMemo(() => parseDiff(diff ?? '').files, [diff])
+  const tot = useMemo(() => diffTotals(parsedFiles), [parsedFiles])
+  const [planned, setPlanned] = useState(false)
+  const plannedTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(plannedTimer.current), [])
+  // facts only (status, tests, files, final answer); the diff body is not included unless the user adds it in the planner
+  const addPlan = () => {
+    onPlan(slotDigest(task, slot, index, diff !== undefined && parsedFiles.length ? { ...tot, paths: parsedFiles.map((f) => f.path) } : undefined))
+    setPlanned(true)
+    clearTimeout(plannedTimer.current)
+    plannedTimer.current = setTimeout(() => setPlanned(false), 1500)
+  }
   const t = slot.testResult
 
   // copies the text currently rendered in this slot's pane (whichever tab is selected)
@@ -229,7 +241,9 @@ function SlotPanel({ task, slot, index, diff, live, canPick, run }: { task: Task
         </div>
         <div className="bon-head-right">
           {slotRunning && <button className="btn sm danger" title="이 슬롯만 중지합니다. 다른 슬롯은 계속 실행됩니다" onClick={() => run(() => api().cancelSlot(task.id, slot.id))}>중지</button>}
+          {planned && <span className="copied small" role="status">추가됨</span>}
           {copied && <span className="copied small" role="status">{copied === 'ok' ? '복사됨' : '복사 실패'}</span>}
+          {!gone && <button className="icon-btn" title="이 슬롯의 결과 요약을 계획 도우미에 추가 (diff 제외)" aria-label="계획 도우미에 추가" onClick={addPlan}>✚</button>}
           {!gone && <button className="icon-btn" title={`현재 탭(${TAB_LABEL[tab]}) 내용 복사`} aria-label="현재 탭 내용 복사" onClick={copy}>⧉</button>}
           <span className={'badge ' + slot.status}>{chosen ? '선택됨' : gone ? '정리됨' : STATUS_LABEL[slot.status]}</span>
         </div>

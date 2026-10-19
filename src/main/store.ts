@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS, type AppState } from '../shared/types'
 
 const file = () => path.join(app.getPath('userData'), 'state.json')
 let writeChain: Promise<void> = Promise.resolve()
-let state: AppState = { projects: [], tasks: [], settings: { ...DEFAULT_SETTINGS } }
+let state: AppState = { projects: [], tasks: [], settings: { ...DEFAULT_SETTINGS }, planners: [] }
 
 export const getState = (): AppState => state
 
@@ -16,8 +16,11 @@ export async function loadState(): Promise<void> {
       state = {
         projects: raw.projects ?? [],
         tasks: raw.tasks ?? [],
-        settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) }
+        settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
+        planners: raw.planners ?? [] // absent in state files written before the planner existed
       }
+      // a planner run cannot survive a restart either
+      for (const th of state.planners) for (const m of th.messages) if (m.status === 'running') m.status = 'interrupted'
       // crash recovery: nothing can still be running after a restart
       for (const t of state.tasks) {
         for (const s of t.stages) if (s.status === 'running') s.status = 'interrupted'

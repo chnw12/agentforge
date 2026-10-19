@@ -66,6 +66,7 @@ export const SHORTCUTS: [string, string][] = [
   ['Alt+↑ / Alt+↓', '이전 / 다음 태스크'],
   ['Alt+1 … 4', 'Best-of-N: 모든 슬롯의 탭 전환 (diff · 테스트 · 요약 · 로그) / 파이프라인: 결과 · 로그 · diff'],
   ['Ctrl+N', '새 태스크'],
+  ['Ctrl+J', '계획 도우미 패널 열기 / 닫기'],
   ['Ctrl+,', '설정'],
   ['Ctrl+/', '이 도움말'],
   ['Esc', '열려 있는 창 닫기'],
