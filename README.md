@@ -10,7 +10,7 @@ A **Windows desktop app** that runs [Claude Code](https://docs.claude.com/en/doc
 
 Every agent works only inside its own worktree and `af/<id>` branch. Merging always requires an explicit click from you.
 
-> **Status: early (v0.1.0), Windows only.** The UI is available in English and Korean (**Settings → Language**; the default follows your OS language). Most automated checks were run against fake agents; see [Known limitations](#known-limitations).
+> **Status: early (v0.1.1), Windows only.** The UI is available in English and Korean (**Settings → Language**; the default follows your OS language). Most automated checks were run against fake agents; see [Known limitations](#known-limitations).
 
 ## Requirements
 - Windows 10/11 and `git`
