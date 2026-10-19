@@ -1,184 +1,187 @@
 # AgentForge
 
-Claude Code와 Codex CLI를 git worktree 격리 환경에서 돌리는 **Windows 데스크탑 앱**입니다. 작업을 두 가지 방식으로 맡길 수 있습니다.
+**English** · [한국어](README.ko.md)
 
-- **파이프라인**: 설계 → 교차검토 → 구현 → 2차검증을 단계마다 사람이 승인하며 진행
-- **Best-of-N**: 같은 요청을 2~3개 슬롯이 병렬로 구현하고, diff·테스트를 비교해 하나를 직접 골라 머지
-- **계획 도우미**: 작업 결과를 붙여 넣으면 Claude Code 또는 Codex가 다음 작업을 설계해 제안하고, 사용자가 확인해 만들면 새 태스크에서 이어서 진행
+A **Windows desktop app** that runs [Claude Code](https://docs.claude.com/en/docs/claude-code) and [Codex CLI](https://github.com/openai/codex) in isolated git worktrees and keeps a human in the loop. You can hand it work in two ways:
 
-모든 에이전트는 태스크(또는 슬롯)마다 따로 만든 worktree와 `af/<id>` 브랜치 안에서만 일하고, 머지는 항상 사용자가 명시적으로 누릅니다.
+- **Pipeline**: design → cross-review → build → verify, with your approval before every stage.
+- **Best-of-N**: 2–3 slots implement the same request in parallel; you compare diffs and test results, pick one, and merge it.
+- **Planner**: paste the results of earlier work and Claude Code or Codex designs the next task. You review the proposal and decide whether to create the task.
 
-## 요구 사항
-- Windows, `git`
-- `claude.exe`, `codex.exe` (로그인 완료). PATH에서 `.exe`로 해석되며 `.cmd` shim은 지원하지 않습니다.
+Every agent works only inside its own worktree and `af/<id>` branch. Merging always requires an explicit click from you.
 
-## 실행
+> **Status: early (v0.1.0), Windows only, Korean UI.** The interface text is currently Korean; an English UI is planned. In this README, UI labels are given in English with the Korean label in parentheses. Most automated checks were run against fake agents; see [Known limitations](#known-limitations).
+
+## Requirements
+- Windows 10/11 and `git`
+- `claude.exe` and `codex.exe` installed and logged in. They are resolved from `PATH` as `.exe` files; `.cmd` shims are not supported.
+- Your own account or API key for each CLI (see [AI usage notes](#ai-usage-notes)).
+
+## Install
+**Installer**: download `AgentForge Setup <version>.exe` from the repository's Releases page and run it. The installer is per-user and lets you choose the install folder.
+
+The installer is **not code-signed**, so Windows SmartScreen may warn you. Choose **More info → Run anyway** if you trust the build, or build it yourself from source (below).
+
+**From source** (Node.js and npm required; developed with Node 24):
 ```
 npm install
-npm run dev        # 개발 모드
-npm run build      # out/ 빌드
-npm run dist       # 설치 파일 생성 (release/, 미서명이라 SmartScreen 경고가 뜰 수 있음)
+npm run dev        # development mode
+npm run build      # build to out/
+npm run dist       # create the installer in release/ (unsigned)
 npm run typecheck
 npm test
 ```
 
-## 사용 흐름
-1. **+ 프로젝트 추가**로 git 저장소 폴더를 등록합니다.
-2. 프로젝트 옆 **+ 태스크**에서 제목과 요청 내용을 쓰고 모드를 고릅니다(파이프라인 / Best-of-N).
-3. 모드별 진행은 아래와 같습니다.
+## Quick start
+1. Click **+ Project** (**+ 프로젝트 추가**) and pick a git repository folder.
+2. Click **+ Task** (**+ 태스크**) next to the project, enter a title and a request, and choose the mode (Pipeline or Best-of-N).
+3. Follow the mode-specific flow below.
 
-### 파이프라인
-단계마다 **실행 승인** 버튼을 눌러 진행합니다.
+### Pipeline
+You advance each stage with the **approve and run** button (**실행 승인**).
 
-| 단계 | 에이전트 | 권한 |
+| Stage | Agent | Permissions |
 |---|---|---|
-| 1. 설계 | Claude | 읽기 전용 |
-| 2. 교차검토 | Codex | read-only |
-| 3. 구현 | Claude | worktree 안에서만 편집 |
-| 4. 2차검증 | Codex | read-only (git이 수집한 사실 + diff를 입력으로 받음) |
+| 1. Design | Claude | read-only |
+| 2. Cross-review | Codex | read-only |
+| 3. Build | Claude | edits only inside the worktree |
+| 4. Verify | Codex | read-only (receives git-collected facts and the diff) |
 
-- 검증이 `VERDICT: PASS`일 때만 머지 승인이 가능합니다. 승인 시 head OID를 고정하고, 머지 직전에 다시 확인합니다.
-- 머지는 사용자가 클릭해야 실행되며, 메인 체크아웃에 커밋되지 않은 변경이 있으면 거부합니다.
+- Merge approval is only possible when verification ends with `VERDICT: PASS`. Approval pins the head commit, and the head is re-checked right before merging.
+- Merging only happens when you click it, and it is refused if the main checkout has uncommitted changes.
+- Before verification, the host runs the project's tests in the worktree (60 s timeout) using `scripts.test` from `package.json` (`npm test`) or `*.test.js` files (`node --test`). A failing, timed-out or erroring test run forces FAIL regardless of what Codex says and blocks merge approval. With no tests, it falls back to "no automated tests, code review only".
+- Extra rule: if the diff adds new exported functions or classes to the source without any test file change, the result is FAIL. Docs, config, bug fixes, refactors, internal helpers and renames/moves are excluded; only JS/TS is checked.
 
 ### Best-of-N
-- 슬롯 2~3개를 만들고 슬롯마다 에이전트(Claude Code / Codex)를 고릅니다. 설계 단계 없이 모든 슬롯이 같은 요청을 바로 구현합니다.
-- 슬롯은 병렬로 구현되고, 테스트는 서로 간섭하지 않도록 끝난 슬롯부터 순서대로 실행됩니다.
-- **슬롯 비교** 표에 상태·테스트·변경 파일 수·+/−·소요 시간이 나란히 나오고, "슬롯별 변경 파일"에서 어느 슬롯이 어떤 파일을 건드렸는지(한 슬롯만 건드린 파일 표시 포함)를 볼 수 있습니다.
-- 마음에 드는 슬롯을 **이 결과 선택 · 머지**로 고르면 그 브랜치가 머지되고 나머지 슬롯의 worktree와 브랜치는 정리됩니다. 테스트가 실행되지 않았거나 실패한 슬롯은 경고를 확인해야 선택됩니다.
-- 머지가 충돌하면 머지를 중단(abort)하고 오류를 보여줍니다. 메인 브랜치와 슬롯 worktree는 그대로 남습니다.
+- Create 2–3 slots and pick an agent (Claude Code or Codex) for each. There is no design stage; every slot implements the same request directly.
+- Slots implement in parallel. Their tests run one after another as each slot finishes, so they do not interfere with each other.
+- The **slot comparison** table shows status, tests, changed files, +/− lines and elapsed time side by side. "Changed files per slot" shows which slot touched which file, including files only one slot touched.
+- Choose the result you like with **pick this result and merge** (**이 결과 선택 · 머지**). That branch is merged and the other slots' worktrees and branches are cleaned up. A slot whose tests did not run or failed needs you to acknowledge a warning first.
+- If a merge conflicts, the merge is aborted and the error is shown. The main branch and the slot worktrees are left as they were.
 
-#### 슬롯별 제어
-에이전트는 일회성 프로세스라 진행 중인 턴에 끼워 넣을 수는 없고, 아래 방식으로 제어합니다.
+#### Per-slot control
+Agents are one-shot processes, so you cannot inject text into a turn that is already running. Control works like this:
 
-- **중지**: 해당 슬롯 프로세스만 종료합니다. 다른 슬롯은 계속 실행됩니다.
-- **추가 지시(실행 중)**: 입력한 지시가 대기열에 들어가고, 현재 실행이 끝난 직후 같은 worktree에서 이어서 실행됩니다. 슬롯을 중지하면 대기열도 비워집니다.
-- **이 슬롯만 다시 실행(끝난 뒤)**: 완료·실패·취소된 슬롯을 기존 worktree 상태 위에서 이어서 실행하며(처음부터 다시가 아님), 선택적으로 추가 지시를 줄 수 있습니다. 테스트도 다시 실행됩니다. 다른 슬롯이 실행 중일 때는 사용할 수 없습니다.
+- **Stop**: kills only that slot's process; the other slots keep running.
+- **Extra instruction while running**: queued, and run in the same worktree right after the current run ends. Stopping the slot clears the queue.
+- **Re-run this slot only (after it ends)**: continues a finished, failed or cancelled slot on top of its existing worktree state (not from scratch), optionally with an extra instruction. Tests run again. Not available while other slots are running.
 
-### diff 뷰어와 복사
-- 파일별 접기/펼치기, 줄 번호, 추가·삭제 색상, 신규/삭제/이름 변경 표시를 지원합니다. 큰 diff는 첫 파일만 펼치고, 파일당 1500줄을 넘으면 "더 보기"로 이어서 봅니다.
-- 슬롯 패널 오른쪽 위 복사 버튼은 현재 탭의 내용을 클립보드에 복사합니다. diff 탭은 줄 번호 같은 화면 요소 없이 원본 diff 텍스트가 복사됩니다.
+### Diff viewer and copy
+- Per-file collapse/expand, line numbers, add/delete colors, and new/deleted/renamed markers. Large diffs open only the first file, and files over 1,500 lines continue with "show more".
+- The copy button at the top right of a slot panel copies the current tab. On the diff tab it copies the raw diff text, without line numbers or other UI elements.
 
-## 계획 도우미
-오른쪽 접이식 패널(`Ctrl+J`)에서 "다음에 무엇을 할지"를 에이전트와 설계합니다. 상세 설계와 조사 근거는 `docs/DESIGN-planner.md`에 있습니다.
+## Planner
+A collapsible right-hand panel (`Ctrl+J`) for working out what to do next with an agent. See `docs/DESIGN-planner.md` (Korean) for the design and the research behind it.
 
-1. **스레드 만들기**: 프로젝트마다 계획 스레드를 만들고, 에이전트(Claude Code / Codex)를 고릅니다.
-2. **이전 결과(참고 자료) 모으기**: 이미 끝난 작업의 결과를 직접 붙여 넣거나, 슬롯 헤더의 ✚·단계 화면의 "선택한 단계를 계획 도우미에 추가"·태스크 헤더의 "계획 도우미로 보내기"로 요약(상태, 테스트, 변경 파일, 최종 답변)을 추가합니다. **diff 본문은 기본으로 제외**되고, 필요한 항목에서 "+ diff 추가"를 눌러야 들어갑니다.
-3. **설계 요청**: "새로 시킬 일"(계획 도우미에게 하는 요청)을 쓰고 `Ctrl+Enter`. 에이전트는 **읽기 전용**(Claude: Read/Grep/Glob 도구만, Codex: read-only 샌드박스)으로 저장소를 살펴본 뒤 제안을 돌려줍니다.
-4. **제안 카드**: 제목, "새 태스크에 들어갈 요청 내용", 근거·위험·확인할 점이 나오고, 에이전트가 추천한 **모드(파이프라인 / Best-of-N)가 미리 선택**됩니다. 모두 수정할 수 있습니다.
-5. **새 태스크 만들기**: 누르면 새 태스크 창이 제안 내용으로 미리 채워져 열리고, **[생성]을 눌러야만** 태스크가 만들어집니다(자동 생성·자동 실행 없음). 만들어진 태스크에는 "계획 출처"가 표시되고, 그 결과를 다시 계획 도우미에 보내 다음 설계로 이어갈 수 있습니다.
+1. **Create a thread.** Each project can have planning threads. Choose the agent (Claude Code or Codex).
+2. **Collect previous results ("reference material").** Paste results from finished work, or add summaries (status, tests, changed files, final answer) with the ✚ in a slot header, **add selected stage to planner** in a stage view, or **send to planner** in a task header. **Diffs are excluded by default**; use **+ add diff** on an item to include one.
+3. **Ask.** Write the request in **what to do next** (the design request to the planner) and press `Ctrl+Enter`. The agent inspects the repository **read-only** (Claude: only the Read/Grep/Glob tools; Codex: read-only sandbox) and returns a proposal.
+4. **Proposal card.** Shows a title, the request text for the new task, and the rationale, risks and open questions. The mode the agent recommends (Pipeline or Best-of-N) is preselected. Everything is editable.
+5. **Create the task.** The new-task dialog opens prefilled with the proposal, and the task is only created when you press **Create** (**생성**). Nothing is created or started automatically. Created tasks show a "plan origin" link, and you can send their results back to the planner to continue.
 
-- **대화 방식** 전환: "이어서 논의"(이전 대화를 매번 다시 보냄)와 "매번 새로"(컨텍스트만 보냄). 어느 쪽이 나은지는 실제로 써 보고 정할 수 있게 둔 옵션입니다. 이어서 논의에서는 이전에 쓴 목표 문구도 다시 전송됩니다.
-- 붙여넣은 내용은 비밀 정보로 보이는 문자열을 먼저 가리고(`[REDACTED]`, 개수 표시), 항목당 30,000자·전체 100,000자로 제한됩니다. 컨텍스트는 신뢰할 수 없는 데이터로 표시되어 에이전트에 전달됩니다.
-- 제안 형식(`af-proposal` JSON)이 올바르지 않으면 카드를 만들지 않고 응답 원문과 오류를 보여주며, 그 텍스트를 새 태스크 요청으로 가져오는 버튼을 제공합니다.
-- 요청이 끝나면 창이 백그라운드일 때 알림이 옵니다. 앱을 끄면 실행 중인 요청도 종료되고, 다시 켜면 "중단됨"으로 표시됩니다.
+- **Conversation mode**: "continue" resends the earlier conversation each time; "fresh" sends only the reference material. Both exist so you can see which works better. In continue mode your earlier request texts are sent again too.
+- Pasted text has secret-looking strings masked first (`[REDACTED]`, with a count) and is limited to 30,000 characters per item and 100,000 in total. Reference material is passed to the agent marked as untrusted data.
+- If the proposal format (`af-proposal` JSON) is invalid, no card is created; the raw reply and the error are shown with a button that copies the text into a new task request.
+- You get a notification when a request finishes while the window is in the background. Quitting the app stops running requests, and they show as "interrupted" on the next start.
 
-### 사용 예시
-"로그인 기능 태스크가 끝났고, 이어서 에러 처리를 하고 싶다"는 경우입니다.
+## Skills
+Open **Skills** (**스킬**, bottom left, or `Ctrl+K` → "skills") to switch instructions on and off for the agents.
 
-1. 끝난 태스크 화면에서 **"계획 도우미로 보내기"**를 누릅니다(`Ctrl+J`로 패널을 먼저 열어 둬도 됩니다). 패널의 **"이전 결과 · 참고 자료"**에 요약이 들어갑니다. 다른 곳에서 복사한 결과는 **"+ 붙여넣기"**로 추가합니다.
-2. 참고 자료가 많거나 필요 없는 항목은 ✕로 지웁니다. 코드 변경 내용까지 보여 주고 싶은 항목만 **"+ diff 추가"**를 누릅니다.
-3. 에이전트(Claude Code / Codex)를 고르고 **"새로 시킬 일"**에 다음에 하고 싶은 일을 적습니다. 예: `위 결과를 바탕으로 로그인 실패 시 에러 처리를 설계해줘`
-4. **"설계 요청"**(또는 `Ctrl+Enter`)을 누르고 기다립니다. 진행 중에는 **"중지"**로 멈출 수 있습니다.
-5. 제안 카드가 나오면 제목과 "새 태스크에 들어갈 요청 내용", 추천 모드를 읽고 필요하면 고칩니다. "위험"·"확인할 점"은 만들기 전에 꼭 확인하세요.
-6. 마음에 들면 **"새 태스크 만들기"** → 미리 채워진 창에서 에이전트 구성을 확인하고 **[생성]**을 누릅니다. 마음에 들지 않으면 같은 입력창에 수정 요청을 이어서 쓰면 됩니다.
-7. 새 태스크가 끝나면 1번부터 반복합니다. 태스크 헤더의 "계획 출처"로 어떤 제안에서 나왔는지 돌아볼 수 있습니다.
+- The two top boxes list skills installed for **Claude** (`~/.claude/skills`) and **Codex** (`~/.codex/skills`, or `CODEX_HOME`). Tick one to turn it on.
+- **Personal skills** below are instructions you keep inside the app. Type a name and text, or import a `SKILL.md`/`.md`/`.txt` file, then add it; remove it with ✕. Each personal skill can target Claude, Codex or both.
+- The **body text** of every enabled skill is placed before the task request for Pipeline, Best-of-N and the Planner. This works with `--safe-mode` on. Files or scripts a skill refers to are not passed along.
+- The prompt tells the agent that the task request's constraints (read-only, output format, the VERDICT line, …) take priority over skills. A model is not guaranteed to obey that.
+- Limit: 20,000 characters per skill and 40,000 per agent; anything beyond is left out. Longer skills use more of your quota.
 
-팁: 한 번에 한 가지만 요청하면 제안이 더 구체적입니다. 비밀 키·개인정보는 붙여넣지 마세요(위 "AI 사용 시 주의사항" 참고).
+## Notifications and status
+- The sidebar shows per-task progress (`Pipeline · stage 2/4`, `Best-of-N · 1/3 slots done`) and elapsed time for running tasks.
+- States that need you (choose a result, approve a merge, approve the next stage, merge pending, failed) are marked with a dot and text, and the window title gets a `(count)`. A failure marker disappears once you open that task.
+- When a running task starts waiting for you, you get a Windows notification and a taskbar flash (only while the window is in the background). Clicking the notification opens the task. This can be turned off in settings.
 
-## 알림과 상태 표시
-- 사이드바에 태스크별 진행률(`파이프라인 · 2/4 단계`, `Best-of-N · 슬롯 1/3 종료`)과 실행 중 경과 시간이 표시됩니다.
-- 내 확인이 필요한 상태(결과 선택 대기, 머지 승인 대기, 다음 단계 승인 대기, 머지 대기, 실패)는 점과 문구로 표시되고, 창 제목에 `(개수)`가 붙습니다. 실패는 해당 태스크를 열어 보면 표시가 사라집니다.
-- 태스크가 실행 중이다가 내 확인을 기다리게 되면 Windows 알림과 작업표시줄 깜빡임이 나옵니다(창이 백그라운드일 때만). 알림을 누르면 해당 태스크가 열립니다. 설정에서 끌 수 있습니다.
-
-## 단축키
-| 키 | 동작 |
+## Keyboard shortcuts
+| Key | Action |
 |---|---|
-| `Ctrl+K` | 태스크 검색 / 명령 팔레트 (제목·프로젝트·상태로 검색) |
-| `Alt+↑` / `Alt+↓` | 이전 / 다음 태스크 |
-| `Alt+1` … `Alt+4` | Best-of-N: 모든 슬롯의 탭 전환(diff · 테스트 · 요약 · 로그). 파이프라인: 결과 · 로그 · diff |
-| `Ctrl+N` | 새 태스크 |
-| `Ctrl+J` | 계획 도우미 패널 열기 / 닫기 |
-| `Ctrl+,` | 설정 |
-| `Ctrl+/` | 단축키 도움말 |
-| `Esc` | 열린 창 닫기 |
-| `Ctrl+Enter` | 추가 지시 입력창에서 전송 |
+| `Ctrl+K` | Task search / command palette (title, project, status) |
+| `Alt+↑` / `Alt+↓` | Previous / next task |
+| `Alt+1` … `Alt+4` | Best-of-N: switch tabs on all slots (diff · tests · summary · log). Pipeline: result · log · diff |
+| `Ctrl+N` | New task |
+| `Ctrl+J` | Open / close the planner panel |
+| `Ctrl+,` | Settings |
+| `Ctrl+/` | Shortcut help |
+| `Esc` | Close the open dialog |
+| `Ctrl+Enter` | Send from the extra-instruction box |
 
-단축키는 물리 키(`e.code`) 기준이라 한글 입력 상태에서도 동작합니다.
+Shortcuts use physical keys (`e.code`), so they work while a Korean IME is active.
 
-## 삭제
-- 태스크 🗑: 확인 후 `git worktree remove`(**--force 없음**)와 브랜치 삭제를 하고 목록·로그에서 제거합니다. 실행 중이면 비활성입니다. git이 거부하면(변경사항 등) 에러를 보여주고 중단하므로, 이때는 먼저 "폐기"(강제 정리)하세요. 머지된 태스크는 `branch -d`로 정리만 하고 메인 브랜치 이력은 그대로 둡니다.
-- 프로젝트 "목록에서 제거": 원본 폴더와 저장소는 건드리지 않습니다. 남은 worktree가 있으면 함께 정리할지 묻고, 정리하지 않으면 worktree와 브랜치는 저장소에 남습니다.
+## Settings
+- Claude `--safe-mode` (on by default)
+- Claude model (empty = Claude Code's default; aliases such as `sonnet`/`opus` or a full model ID are passed as `--model`)
+- Codex model (default `gpt-5.6-sol`; empty = Codex's own configured model)
+- Model settings apply to Pipeline, Best-of-N and the Planner, from the next run on.
+- Stage timeout (default 20 minutes)
+- Allowed tools for the build stage (`--allowed-tools`)
+- Notifications on/off
+- Path to a `rea` executable (RE mode, below)
 
-## 설정
-설정 창에서 바꿀 수 있는 항목입니다.
-- Claude `--safe-mode` (기본 켜짐)
-- Claude 모델 (비우면 Claude Code 기본값. `sonnet`, `opus` 같은 별칭이나 전체 모델 ID를 `--model`로 전달)
-- Codex 모델 (기본 `gpt-5.6-sol`)
-- 모델 설정은 파이프라인, Best-of-N, 계획 도우미 모두에 적용되며 다음 실행부터 바뀝니다.
+If the default model in `~/.codex/config.toml` is rejected for your account, change the Codex model in settings.
 
-### 스킬
-왼쪽 아래 **스킬**(또는 `Ctrl+K` → "스킬")에서 에이전트에게 따르게 할 지침을 켜고 끕니다.
-- 위쪽 두 칸은 **Claude 기본**(`~/.claude/skills`)과 **Codex 기본**(`~/.codex/skills`, 없으면 `CODEX_HOME`)에 설치된 스킬 목록입니다. 체크하면 켜집니다.
-- 아래 **개인 스킬**은 앱 안에 직접 넣어 두는 지침입니다. 이름과 내용을 적거나 "파일에서 가져오기"로 `SKILL.md`/`.md`/`.txt`를 불러와 "개인 스킬에 넣기"를 누르고, ✕로 뺍니다. 스킬마다 Claude / Codex 중 어디에 줄지 고릅니다.
-- 켠 스킬의 **본문**이 파이프라인, Best-of-N, 계획 도우미의 작업 요청 앞에 붙어 전달됩니다. 안전 모드(`--safe-mode`)를 켠 채로도 동작합니다. 스킬이 언급하는 별도 파일·스크립트는 전달되지 않습니다.
-- 작업 요청의 제약(읽기 전용, 출력 형식, VERDICT 줄 등)이 스킬보다 우선한다고 에이전트에게 명시합니다. 다만 모델이 항상 지킨다는 보장은 없습니다.
-- 스킬 하나당 20,000자, 에이전트별 합계 40,000자까지 전달하며 초과분은 제외됩니다. 길수록 사용량이 늘어납니다.
-- 단계 타임아웃 (기본 20분)
-- 구현 단계 허용 도구 (`--allowed-tools`)
-- 알림 사용 여부
-- rea 실행 파일 경로 (RE 모드, 아래 참고)
+### RE mode
+If you set a `rea` executable (`.exe`) path in settings, the result of `analyze-javascript-application <path> --json` for a pipeline task's analysis target is injected into the design stage. This invocation has not been verified by an actual run in the app yet.
 
-`~/.codex/config.toml`의 기본 모델이 계정에서 거부되면 설정의 Codex 모델을 바꾸세요.
+## Deleting
+- Task 🗑: after confirmation, runs `git worktree remove` (**without `--force`**) and deletes the branch, then removes the task from the list and logs. Disabled while running. If git refuses (for example because of changes), the error is shown and nothing else happens; use "discard" (forced cleanup) first. Merged tasks are only cleaned up with `branch -d`; the main branch history is untouched.
+- Project "remove from list": never touches the original folder or repository. If worktrees remain, it asks whether to clean them up; otherwise they stay in the repository.
 
-## RE 모드
-설정에서 rea 실행 파일(.exe) 경로를 지정하면, 파이프라인 태스크의 분석 대상에 대해 `analyze-javascript-application <path> --json` 결과를 설계 단계에 주입합니다. (이 서브커맨드 호출 형식은 앱에서 아직 실제 실행으로 검증하지 않았습니다.)
-
-## 테스트
+## Tests
 ```
-npm test                         # 단위·통합 테스트
-$env:AF_E2E = 1; npm test        # PowerShell: 실제 claude/codex를 호출하는 Best-of-N E2E 포함 (토큰 소모, 수 분 소요)
+npm test                         # unit and integration tests
+$env:AF_E2E = 1; npm test        # PowerShell: also runs the Best-of-N E2E against real claude/codex (spends tokens, takes minutes)
 ```
-- `test/bon-control.test.ts`는 `test/fixtures/fake-agent.cs`를 `csc.exe`로 컴파일한 가짜 `claude.exe`/`codex.exe`로 슬롯별 중지·대기열·재실행을 검증합니다. Windows 전용이며 다른 환경에서는 자동으로 건너뜁니다.
-- `test/planner-run.test.ts`는 같은 가짜 에이전트로 계획 도우미 실행기(Claude/Codex, 읽기 전용 인자, 제안 파싱, 실패·취소, 대화 이력 전달)를 검증합니다. 역시 Windows 전용입니다.
-- 2차검증 전에 호스트가 worktree에서 테스트를 실행합니다(60초 타임아웃). `package.json`의 `scripts.test`(→ `npm test`) 또는 `*.test.js`(→ `node --test`)를 사용합니다. 실패·타임아웃·실행 오류면 Codex 판단과 무관하게 FAIL이며 머지 승인이 불가합니다. 테스트가 없으면 "자동 테스트 없음, 코드 리뷰만 수행"으로 폴백합니다.
-- 추가 규칙: 소스에 **새 공개(export) 함수/클래스**가 순증가했는데 diff에 테스트 파일 변경이 없으면 FAIL입니다. 문서·설정·버그 수정·리팩토링·내부 헬퍼·이름 변경/이동은 제외하며 JS/TS만 판정합니다.
+- `test/bon-control.test.ts` and `test/planner-run.test.ts` use fake `claude.exe`/`codex.exe` compiled from `test/fixtures/fake-agent.cs` with `csc.exe` to check per-slot stop/queue/re-run and the planner runner (read-only arguments, proposal parsing, failure/cancel, history). They are Windows-only and skip themselves elsewhere.
 
-## AI 사용 시 주의사항
-AgentForge 자체에는 서버가 없고 모든 것이 로컬에서 실행되지만, 앱이 실행하는 `claude`/`codex` CLI는 **작업 내용과 저장소 파일을 외부 AI 업체(Anthropic, OpenAI)로 전송**합니다. 아래를 확인한 뒤 사용하세요. (2026-10 기준 공식 문서를 확인한 내용이며, 약관과 정책은 바뀔 수 있습니다. 법률 자문이 아닙니다.)
+## AI usage notes
+AgentForge has no server and everything runs locally, but the `claude` and `codex` CLIs it launches **send your task text and repository files to an external AI provider (Anthropic, OpenAI)**. Please read this before using it. (Based on the providers' public documentation as of October 2026; terms and policies change. This is not legal advice.)
 
-- **민감한 자료를 넣지 마세요.** 에이전트는 worktree 안의 파일을 읽고 요청 내용과 함께 외부로 보냅니다. 개인정보(특히 이용자·고객 정보), 기밀, 인증 정보가 저장소나 태스크 요청에 들어 있지 않은지 확인하고, 필요하면 테스트용 가짜 데이터를 쓰세요.
-- **계정은 사용자마다 따로 쓰세요.** 각 사용자가 자기 계정이나 API 키로 `claude`/`codex`에 직접 로그인해야 하고, 한 계정을 여럿이 공유하거나 대신 결제해 주는 방식은 Claude Code 약관에 어긋날 수 있습니다. AgentForge는 CLI를 수정하지 않고 그대로 실행만 하며, 로그인 정보를 직접 다루지 않습니다.
-- **조직에서 쓴다면 개인 플랜보다 조직용 계정을 쓰세요.** Claude는 Free/Pro/Max에 개인용 약관(Consumer Terms), Team/Enterprise/API에 상업용 약관(Commercial Terms)이 적용됩니다. ChatGPT/Codex도 Business·Enterprise·API는 기본적으로 입력·출력을 학습에 쓰지 않지만 Plus/Pro는 설정에 따라 쓰일 수 있습니다(Codex에는 별도의 학습 허용 설정도 있습니다).
-- **개인 플랜은 학습 설정을 확인하세요.** Claude 개인 플랜은 계정 설정에서 거부(opt-out)하지 않으면 대화 내용이 모델 개선에 쓰일 수 있습니다.
-- **계획 도우미도 외부로 전송합니다.** 붙여넣은 컨텍스트와 목표, 그리고 에이전트가 읽는 저장소 파일이 Anthropic/OpenAI로 전송됩니다. 패널에 같은 경고가 표시되며, 개인정보·기밀은 붙여넣지 마세요. 비밀 정보 패턴은 가리지만 완전하지 않습니다.
-- **사용 한도를 빨리 소모합니다.** Best-of-N은 슬롯 수만큼 에이전트를 동시에 돌립니다. Pro/Max의 사용 한도는 개인의 일반적인 사용을 전제로 합니다.
-- **공공기관·복지시설 등에서 쓸 때는 기관의 지침을 먼저 확인하세요.** 외부 AI 서비스에 업무 자료나 개인정보를 입력해도 되는지는 기관의 보안·개인정보 정책에 따라 다릅니다. 국가정보원의 AI 보안 가이드, 개인정보보호위원회의 생성형 AI 개인정보 처리 안내서, 소속 기관 정보보안 담당자의 승인을 확인하세요. 이 프로젝트는 그런 승인이나 인증을 받은 적이 없습니다.
-- **생성된 코드는 직접 검토하세요.** 2차검증과 테스트 게이트는 보안 감사나 라이선스 검토를 대신하지 않습니다. AI가 만든 코드의 저작권과 기존 코드와의 유사성은 법적으로 정리되지 않은 영역이므로, 배포 전에 확인이 필요합니다.
+- **Do not feed it sensitive material.** Agents read files in the worktree and send them out along with your request. Make sure personal data (especially of users or customers), confidential material and credentials are not in the repository or in task requests; use fake test data where needed.
+- **Use one account per person.** Each user should log in to `claude`/`codex` with their own account or API key. Sharing one account among several people, or paying on others' behalf, may violate Claude Code's terms. AgentForge runs the CLIs unmodified and never handles your login credentials.
+- **In an organization, prefer organization plans over personal ones.** Claude Free/Pro/Max fall under the Consumer Terms; Team/Enterprise/API fall under the Commercial Terms. For ChatGPT/Codex, Business, Enterprise and API data is not used for training by default, while Plus/Pro may be, depending on settings (Codex also has a separate training opt-in setting).
+- **On personal plans, check the training setting.** Claude personal plans may use conversations to improve models unless you opt out in account settings.
+- **The planner also sends data out.** Pasted material, your request, and the repository files the agent reads go to Anthropic/OpenAI. The panel shows the same warning. Secret-looking patterns are masked, but not perfectly.
+- **It burns usage quickly.** Best-of-N runs one agent per slot at the same time. Pro/Max limits assume ordinary individual use.
+- **Public institutions and welfare facilities: check your own rules first.** Whether business data or personal information may be entered into an external AI service depends on the institution's security and privacy policy (in Korea, for example, the National Intelligence Service's AI security guidance and the Personal Information Protection Commission's guidance on generative AI). This project has not received any such approval or certification.
+- **Review generated code yourself.** Verification and the test gate are not a security audit or a license review. The copyright status of AI-generated code and its similarity to existing code is legally unsettled; check before you distribute.
 
-## 알려진 한계
-- worktree와 Claude 권한 모드는 **보안 샌드박스가 아닙니다.** 신뢰할 수 있는 저장소에서만 사용하세요.
-- Windows 전용이고, 에이전트는 Claude Code와 Codex 두 가지, Best-of-N 슬롯은 2~3개로 제한됩니다.
-- 슬롯 재실행은 처음부터 다시가 아니라 기존 worktree 상태 위에서 이어서 실행합니다.
-- 슬롯별 중지·추가 지시는 Best-of-N 전용입니다. 파이프라인 태스크에는 아직 없습니다.
-- 계획 도우미: 같은 컨텍스트를 Claude와 Codex 두 에이전트에 동시에 보내 설계를 나란히 비교하는 기능은 아직 없습니다. 모드 추천의 품질과 "이어서 논의 / 매번 새로" 중 어느 쪽이 나은지는 실제 에이전트로 충분히 검증하지 못했고(자동 검증은 가짜 에이전트로 했습니다), 읽기 전용 샌드박스가 저장소 밖 파일 읽기까지 막는지는 확인하지 못했습니다.
-- 파이프라인에서 검증이 FAIL이어도 구현 단계를 다시 돌리는 경로가 없습니다(폐기 후 새 태스크).
-- 기존 테스트가 새 기능을 실제로 검증하는지는 알 수 없고(Codex가 확인), worktree에 `node_modules`가 없어 의존성이 필요한 프로젝트는 `npm test`가 실패(=차단)할 수 있습니다.
-- 기본 아이콘을 사용하고, 코드 서명과 자동 업데이트가 없습니다.
-- 진짜 `claude`/`codex`로 끝까지 돌린 UI 검증은 제한적입니다. 대부분의 자동·E2E 검증은 가짜 에이전트로 했습니다.
+## Known limitations
+- Worktrees and Claude's permission modes are **not a security sandbox.** Use it only on repositories you trust.
+- Windows only. Two agents (Claude Code and Codex), and 2–3 Best-of-N slots.
+- Re-running a slot continues on top of the existing worktree state; it does not start over.
+- Per-slot stop and extra instructions exist only for Best-of-N, not for pipeline tasks.
+- Planner: there is no way yet to send the same material to Claude and Codex at once and compare their designs side by side. The quality of the mode recommendation and which conversation mode works better have not been judged sufficiently with real agents. In one small test against real Claude Code and Codex, file creation was refused and a file outside the repository was not read, but it was not established whether Codex's read-only sandbox itself blocks outside reads.
+- If verification fails in a pipeline, there is no path to re-run the build stage (discard and create a new task).
+- It cannot tell whether existing tests actually exercise a new feature (Codex is asked to check), and since worktrees have no `node_modules`, projects that need dependencies may fail `npm test` (which blocks).
+- Default icon; no code signing; no auto-update.
+- Verification with real `claude`/`codex` end to end is limited. Most automated and E2E checks use fake agents.
+- The UI is Korean only for now.
 
-## 구조
+## Project layout
 ```
-src/main/       Electron 메인: git/worktree, 파이프라인, Best-of-N 실행, 계획 도우미 실행기, 프로세스 관리, 알림, 상태 저장
-src/preload/    렌더러에 노출하는 IPC API (허용 목록 방식)
-src/renderer/   React UI: App, BonView, DiffView, Palette, PlannerPanel
-src/shared/     main/renderer 공용 순수 로직: 타입, diff 파서, 알림 판정, 검색, 슬롯 경고, 계획 도우미(프롬프트·제안 파서)
-docs/           설계 문서 (계획 도우미)
-test/           vitest 테스트와 가짜 에이전트 fixture
+src/main/       Electron main: git/worktree, pipeline, Best-of-N runner, planner runner, process management, notifications, state storage
+src/preload/    IPC API exposed to the renderer (allow-list)
+src/renderer/   React UI: App, BonView, DiffView, Palette, PlannerPanel, SkillsDlg
+src/shared/     pure logic shared by main/renderer: types, diff parser, attention rules, search, slot warnings, planner (prompt and proposal parser), skills
+docs/           design docs (Korean)
+test/           vitest tests and the fake-agent fixture
 ```
 
-참고한 프로젝트의 출처는 `THIRD_PARTY_NOTICES.md`에 있습니다.
+## Feedback
+This is an early project and I would like to hear about:
+- whether the Best-of-N compare-and-merge flow is useful in your own work;
+- planner proposals that were wrong or unhelpful;
+- anything that breaks on your machine (Windows version, CLI versions, repository type).
 
-## 라이선스
-AgentForge는 [MIT 라이선스](LICENSE)로 공개됩니다. 저작권 표시와 라이선스 전문을 유지하면 개인·기관을 가리지 않고 사용, 수정, 재배포할 수 있습니다. 소프트웨어는 어떤 보증도 없이 "있는 그대로" 제공됩니다.
+Please open an issue. Do not paste secrets or private code into issues.
 
-설치 파일에는 Electron(Chromium 포함) 등 오픈소스 구성 요소가 함께 들어 있고, 각 라이선스 파일은 설치 폴더에 포함됩니다. 설계 아이디어를 참고한 프로젝트는 `THIRD_PARTY_NOTICES.md`에 적었습니다. `claude`와 `codex` CLI는 이 저장소에 포함되지 않으며, 각 사의 약관을 따릅니다.
+## License
+AgentForge is released under the [MIT License](LICENSE). Keep the copyright notice and license text and you may use, modify and redistribute it, as an individual or an organization. The software is provided "as is", without warranty of any kind.
+
+The installer bundles open-source components such as Electron (including Chromium); their license files are included in the install folder. Projects that informed the design are credited in `THIRD_PARTY_NOTICES.md`. The `claude` and `codex` CLIs are not part of this repository and are governed by their providers' terms.
