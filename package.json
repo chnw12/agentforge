@@ -4,6 +4,7 @@
   "description": "Multi-agent (Claude Code + Codex) design/review/build/verify pipeline",
   "main": "out/main/index.js",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
