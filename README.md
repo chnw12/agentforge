@@ -112,7 +112,9 @@ npm test
 ## 설정
 설정 창에서 바꿀 수 있는 항목입니다.
 - Claude `--safe-mode` (기본 켜짐)
+- Claude 모델 (비우면 Claude Code 기본값. `sonnet`, `opus` 같은 별칭이나 전체 모델 ID를 `--model`로 전달)
 - Codex 모델 (기본 `gpt-5.6-sol`)
+- 모델 설정은 파이프라인, Best-of-N, 계획 도우미 모두에 적용되며 다음 실행부터 바뀝니다.
 - 단계 타임아웃 (기본 20분)
 - 구현 단계 허용 도구 (`--allowed-tools`)
 - 알림 사용 여부

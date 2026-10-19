@@ -86,6 +86,7 @@ function testSection(r?: TestResult): string {
 export function claudeArgs(kind: StageKind, st: Settings): string[] {
   const a = ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence']
   if (st.claudeSafeMode) a.push('--safe-mode')
+  if (st.claudeModel) a.push('--model', st.claudeModel)
   if (kind === 'build') a.push('--permission-mode', 'acceptEdits', '--allowed-tools', st.buildAllowedTools)
   else a.push('--tools', 'Read,Grep,Glob')
   return a

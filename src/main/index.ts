@@ -519,6 +519,7 @@ function registerIpc(): void {
   handle('settings:save', async (s: Settings) => {
     const next: Settings = {
       claudeSafeMode: s.claudeSafeMode === true,
+      claudeModel: typeof s.claudeModel === 'string' && /^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,59}$|^$/.test(s.claudeModel) ? s.claudeModel : DEFAULT_SETTINGS.claudeModel,
       codexModel: typeof s.codexModel === 'string' && /^[A-Za-z0-9._-]{0,60}$/.test(s.codexModel) ? s.codexModel : DEFAULT_SETTINGS.codexModel,
       stageTimeoutMin: Math.min(120, Math.max(1, Math.floor(Number(s.stageTimeoutMin)) || DEFAULT_SETTINGS.stageTimeoutMin)),
       reCommand: '',

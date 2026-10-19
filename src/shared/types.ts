@@ -131,6 +131,7 @@ export interface Project { id: string; path: string; name: string }
 
 export interface Settings {
   claudeSafeMode: boolean
+  claudeModel: string // passed as --model; empty = Claude Code's own default
   codexModel: string
   stageTimeoutMin: number
   reCommand: string // absolute path to rea executable, empty = disabled
@@ -146,6 +147,7 @@ export interface PlannerLogEvent { threadId: string; line: string }
 
 export const DEFAULT_SETTINGS: Settings = {
   claudeSafeMode: true,
+  claudeModel: '',
   codexModel: 'gpt-5.6-sol',
   stageTimeoutMin: 20,
   reCommand: '',

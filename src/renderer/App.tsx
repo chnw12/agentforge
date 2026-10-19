@@ -514,7 +514,10 @@ function SettingsDlg(p: { s: Settings; onClose: () => void; onSave: (s: Settings
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>설정</h2>
         <label className="chk"><input type="checkbox" checked={s.claudeSafeMode} onChange={(e) => setS({ ...s, claudeSafeMode: e.target.checked })} /> Claude <code>--safe-mode</code> (프로젝트 CLAUDE.md/hook/MCP 자동 신뢰 방지, 권장)</label>
-        <label>Codex 모델<input value={s.codexModel} onChange={(e) => setS({ ...s, codexModel: e.target.value })} /></label>
+        <label>Claude 모델 (비우면 Claude Code 기본값)<input list="claude-models" placeholder="예: sonnet, opus, claude-sonnet-5-5" value={s.claudeModel} onChange={(e) => setS({ ...s, claudeModel: e.target.value.trim() })} /></label>
+        <datalist id="claude-models"><option value="opus" /><option value="sonnet" /><option value="haiku" /><option value="claude-fable-5-1" /><option value="claude-opus-5-5" /><option value="claude-sonnet-5-5" /><option value="claude-haiku-5-5" /></datalist>
+        <label>Codex 모델<input value={s.codexModel} onChange={(e) => setS({ ...s, codexModel: e.target.value.trim() })} /></label>
+        <p className="muted small">모델은 파이프라인, Best-of-N, 계획 도우미에 모두 적용됩니다. 실행 중인 작업에는 영향이 없고 다음 실행부터 바뀝니다. 잘못된 이름이면 해당 CLI가 오류를 냅니다.</p>
         <label>단계 타임아웃(분)<input type="number" min={1} max={120} value={s.stageTimeoutMin} onChange={(e) => setS({ ...s, stageTimeoutMin: Number(e.target.value) })} /></label>
         <label>구현 단계 허용 도구 (--allowed-tools)<input value={s.buildAllowedTools} onChange={(e) => setS({ ...s, buildAllowedTools: e.target.value })} /></label>
         <label className="chk"><input type="checkbox" checked={s.notifications} onChange={(e) => setS({ ...s, notifications: e.target.checked })} /> 작업이 내 확인을 기다리면 알림 (창이 백그라운드일 때 Windows 알림 + 작업표시줄 깜빡임)</label>
