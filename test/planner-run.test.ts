@@ -24,11 +24,11 @@ const mkThread = (agent: AgentKind): PlanThread => ({
   contexts: [{ id: 'c1', label: '슬롯 1 요약', kind: 'paste', text: '결과 텍스트' }]
 })
 const mkReply = (agent: AgentKind): PlanMessage => ({ id: `m${++seq}`, role: 'agent', agent, text: '', status: 'running', createdTaskIds: [], createdAt: 2 })
-async function ask(agent: AgentKind, goal: string, history: PlanMessage[] = [], thread = mkThread(agent)) {
+async function ask(agent: AgentKind, goal: string, history: PlanMessage[] = [], thread = mkThread(agent), settings = DEFAULT_SETTINGS) {
   const message = mkReply(agent)
   thread.messages.push(message)
   const lines: string[] = []
-  await runPlanner({ thread, message, goal, history, projectPath: repo, projectName: 'demo', settings: { ...DEFAULT_SETTINGS }, emit: (l) => lines.push(l), onChange: () => undefined })
+  await runPlanner({ thread, message, goal, history, projectPath: repo, projectName: 'demo', settings: { ...settings }, emit: (l) => lines.push(l), onChange: () => undefined })
   return { message, lines, thread }
 }
 
@@ -111,6 +111,13 @@ describe.skipIf(!canRun)('planner runner', () => {
     ]
     expect((await ask('claude', '이어서', prior)).message.text).toContain('turns=2')
     expect((await ask('claude', '새로', [])).message.text).toContain('turns=0')
+  }, 30_000)
+
+  it('puts only the skills switched on for that agent in front of the prompt', async () => {
+    const settings = { ...DEFAULT_SETTINGS, skills: { enabled: [], personal: [{ id: 'abcdef01', name: '규칙', text: 'SKILLTEXT-ONE: be terse', claude: true, codex: false }] } }
+    expect((await ask('claude', 'x', [], undefined, settings)).message.text).toContain('skill=yes')
+    expect((await ask('codex', 'x', [], undefined, settings)).message.text).toContain('skill=no')
+    expect((await ask('claude', 'x')).message.text).toContain('skill=no')
   }, 30_000)
 
   it('can be cancelled mid-run, kills the process and reports cancelled', async () => {

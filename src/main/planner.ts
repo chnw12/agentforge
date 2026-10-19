@@ -5,6 +5,7 @@ import type { PlanMessage, PlanThread, Settings } from '../shared/types'
 import { buildPlannerPrompt, parseProposal } from '../shared/planner'
 import { killTree, resolveExe, runProcess } from './proc'
 import { claudeArgs } from './pipeline'
+import { withSkills } from './skills'
 import { parseEvent } from './parse'
 import { redact } from './redact'
 
@@ -61,9 +62,10 @@ export async function runPlanner(c: PlannerCtx): Promise<void> {
     if (a.cancelled) throw new Error('cancelled')
     let final = ''
     const shown: string[] = []
+    const stdin = await withSkills(prompt, m.agent, settings)
     const res = await runProcess(exe, args, {
       cwd: c.projectPath,
-      stdin: prompt,
+      stdin,
       timeoutMs: settings.stageTimeoutMin * 60_000,
       onPid: (p) => {
         a.pid = p

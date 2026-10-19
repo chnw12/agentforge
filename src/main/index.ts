@@ -3,6 +3,8 @@ import { transitions, type NotifyEvent } from './notify'
 import { cancelPlanner, isPlannerRunning, killAllPlanner, runPlanner } from './planner'
 import { PLAN_LIMITS, countRedactions, pickHistory, sanitizeText, truncateText } from '../shared/planner'
 import { redact } from './redact'
+import { listSkills } from './skills'
+import { SKILL_LIMITS, parseSkillMd, sanitizeSkills } from '../shared/skills'
 import { promises as fs, existsSync } from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
@@ -172,6 +174,17 @@ async function dropTask(t: Task): Promise<void> {
 function registerIpc(): void {
   handle('state:get', () => getState())
   handle('cli:info', () => cliInfo())
+  handle('skills:list', () => listSkills())
+  // a skill file picked by the user; only its text is returned (the renderer stores it in settings)
+  handle('skills:pickFile', async (): Promise<{ name: string; text: string } | null> => {
+    const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], filters: [{ name: '스킬 / 지침 파일', extensions: ['md', 'txt'] }] })
+    const file = r.filePaths[0]
+    if (r.canceled || !file) return null
+    if ((await fs.stat(file)).size > 200_000) throw new Error('파일이 너무 큽니다 (200KB 이하만 가져올 수 있습니다)')
+    const p = parseSkillMd(await fs.readFile(file, 'utf8'))
+    const base = path.basename(file).toLowerCase() === 'skill.md' ? path.basename(path.dirname(file)) : path.basename(file, path.extname(file))
+    return { name: (p.name || base).slice(0, SKILL_LIMITS.name), text: p.body.trim().slice(0, SKILL_LIMITS.text) }
+  })
 
   handle('project:pick', async (): Promise<AppState> => {
     const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] })
@@ -519,6 +532,7 @@ function registerIpc(): void {
   handle('settings:save', async (s: Settings) => {
     const next: Settings = {
       claudeSafeMode: s.claudeSafeMode === true,
+      skills: sanitizeSkills(s.skills),
       claudeModel: typeof s.claudeModel === 'string' && /^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,59}$|^$/.test(s.claudeModel) ? s.claudeModel : DEFAULT_SETTINGS.claudeModel,
       codexModel: typeof s.codexModel === 'string' && /^[A-Za-z0-9._-]{0,60}$/.test(s.codexModel) ? s.codexModel : DEFAULT_SETTINGS.codexModel,
       stageTimeoutMin: Math.min(120, Math.max(1, Math.floor(Number(s.stageTimeoutMin)) || DEFAULT_SETTINGS.stageTimeoutMin)),

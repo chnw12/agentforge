@@ -8,6 +8,7 @@ import { changedFiles, commitAll, facts, fullDiff, headOid, worktreePath } from 
 import { runTests, summarizeTests, testsBlockMerge } from './testrun'
 import { analyzeTestCoverage, coverageBlocksMerge } from './coverage'
 import { redact } from './redact'
+import { withSkills } from './skills'
 import { parseEvent, verdictOf } from './parse'
 
 export const logDir = (taskId: string) => path.join(app.getPath('userData'), 'logs', taskId)
@@ -158,9 +159,10 @@ export async function runStage(c: RunCtx, stage: Stage): Promise<void> {
     }
     let final = ''
     const shown: string[] = []
+    const stdin = await withSkills(prompt, stage.agent, settings)
     const res = await runProcess(exe, args, {
       cwd: wt,
-      stdin: prompt,
+      stdin,
       timeoutMs: settings.stageTimeoutMin * 60_000,
       onPid: (p) => {
         a.pid = p

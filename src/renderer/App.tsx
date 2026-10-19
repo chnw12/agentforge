@@ -4,6 +4,7 @@ import { BonView } from './BonView'
 import { DiffView } from './DiffView'
 import { Palette, ShortcutHelp, type PaletteItem } from './Palette'
 import { PlannerPanel, type ProposalDraft } from './PlannerPanel'
+import { SkillsDlg } from './SkillsDlg'
 import { stageDigest, taskDigest } from '../shared/planner'
 import { attention, attentionKey, progress } from '../shared/attention'
 
@@ -40,6 +41,7 @@ export function App() {
   const [err, setErr] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showSkills, setShowSkills] = useState(false)
   const [showPal, setShowPal] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showPlanner, setShowPlanner] = useState(false)
@@ -109,6 +111,7 @@ export function App() {
     const actions: PaletteItem[] = [
       { id: 'action:new', kind: 'action', title: '새 태스크', text: '새 태스크 new task 만들기' },
       { id: 'action:settings', kind: 'action', title: '설정', text: '설정 settings' },
+      { id: 'action:skills', kind: 'action', title: '스킬', text: '스킬 skills 지침 skill' },
       { id: 'action:planner', kind: 'action', title: '계획 도우미 열기/닫기', text: '계획 도우미 planner 설계 다음 작업 plan' },
       { id: 'action:help', kind: 'action', title: '단축키 도움말', text: '단축키 도움말 shortcuts help keyboard' }
     ]
@@ -118,6 +121,7 @@ export function App() {
     setShowPal(false)
     if (it.id === 'action:new') openNew()
     else if (it.id === 'action:settings') setShowSettings(true)
+    else if (it.id === 'action:skills') setShowSkills(true)
     else if (it.id === 'action:help') setShowHelp(true)
     else if (it.id === 'action:planner') setShowPlanner((v) => !v)
     else setSelTask(it.id)
@@ -128,9 +132,9 @@ export function App() {
     const h = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey
       // physical keys (e.code), not characters: under a Korean IME e.key is a jamo or 'Process' and would never match
-      const anyModal = showNew || showSettings || showPal || showHelp
+      const anyModal = showNew || showSettings || showSkills || showPal || showHelp
       if (e.key === 'Escape') {
-        if (anyModal) { setShowNew(false); setShowSettings(false); setShowPal(false); setShowHelp(false) }
+        if (anyModal) { setShowNew(false); setShowSettings(false); setShowSkills(false); setShowPal(false); setShowHelp(false) }
         return
       }
       if (mod && !e.altKey && !e.shiftKey && e.code === 'KeyK') { e.preventDefault(); setShowHelp(false); setShowPal((v) => !v); return }
@@ -156,7 +160,7 @@ export function App() {
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [showNew, showSettings, showPal, showHelp, orderedTasks, selTask, task, openNew])
+  }, [showNew, showSettings, showSkills, showPal, showHelp, orderedTasks, selTask, task, openNew])
 
   // re-render once a second only while something runs, so the elapsed time ticks
   const anyRunning = !!state?.tasks.some((t) => t.status === 'running')
@@ -312,6 +316,7 @@ ${leftover.map((t) => '- ' + (t.branch || 'best-of-n') + ' ' + t.title).join(NL)
             </div>
           ))}
           <button className="link" onClick={() => setShowPal(true)} title="태스크 검색 (Ctrl+K)">검색 <kbd>Ctrl+K</kbd></button>
+          <button className="link" onClick={() => setShowSkills(true)}>스킬</button>
           <button className="link" onClick={() => setShowSettings(true)}>설정</button>
         </div>
       </aside>
@@ -416,6 +421,7 @@ ${leftover.map((t) => '- ' + (t.branch || 'best-of-n') + ' ' + t.title).join(NL)
       )}
       {showPal && <Palette items={paletteItems} onPick={pickPalette} onClose={() => setShowPal(false)} />}
       {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
+      {showSkills && state && <SkillsDlg api={api} s={state.settings} onClose={() => setShowSkills(false)} onSave={async (s) => { await run(() => api().saveSettings(s)); setShowSkills(false) }} />}
       {showSettings && state && <SettingsDlg s={state.settings} onClose={() => setShowSettings(false)} onSave={async (s) => { await run(() => api().saveSettings(s)); setShowSettings(false) }} />}
     </div>
   )

@@ -191,3 +191,14 @@ kbd { font: 11px Consolas, 'Cascadia Mono', monospace; background: var(--panel2)
 .proposal label.chk { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-size: 13px; }
 .proposal ul { margin: 4px 0 0; padding-left: 18px; }
 .head-right { display: flex; align-items: center; gap: 10px; }
+.modal.wide { width: min(760px, 94vw); }
+.skill-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.skill-box { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow: auto; }
+.skill-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.skill-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.skill-row .skill-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-add { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.row-start { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row-start input { flex: 1; min-width: 160px; }
+.row-start .btn.primary { margin-left: auto; }
+@media (max-width: 640px) { .skill-cols { grid-template-columns: 1fr; } }

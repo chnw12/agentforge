@@ -129,8 +129,18 @@ export interface PlanThread {
 
 export interface Project { id: string; path: string; name: string }
 
+/** A skill the user wrote or imported inside AgentForge; its text is sent to the agents it is switched on for. */
+export interface PersonalSkill { id: string; name: string; text: string; claude: boolean; codex: boolean }
+export interface SkillSettings {
+  enabled: string[] // ids of installed skills switched on: `claude:<folder>` / `codex:<folder>`
+  personal: PersonalSkill[]
+}
+/** A skill found in a CLI's own skills folder (SKILL.md). */
+export interface SkillInfo { id: string; agent: AgentKind; name: string; description: string; chars: number }
+
 export interface Settings {
   claudeSafeMode: boolean
+  skills: SkillSettings
   claudeModel: string // passed as --model; empty = Claude Code's own default
   codexModel: string
   stageTimeoutMin: number
@@ -147,6 +157,7 @@ export interface PlannerLogEvent { threadId: string; line: string }
 
 export const DEFAULT_SETTINGS: Settings = {
   claudeSafeMode: true,
+  skills: { enabled: [], personal: [] },
   claudeModel: '',
   codexModel: 'gpt-5.6-sol',
   stageTimeoutMin: 20,
@@ -168,6 +179,8 @@ export interface Api {
   getState(): Promise<AppState>
   cliInfo(): Promise<CliInfo[]>
   pickProject(): Promise<AppState>
+  listSkills(): Promise<SkillInfo[]>
+  pickSkillFile(): Promise<{ name: string; text: string } | null>
   createTask(input: { projectId: string; title: string; prompt: string; reTarget?: string; mode?: TaskMode; slotAgents?: AgentKind[]; origin?: TaskOrigin }): Promise<AppState>
   plannerCreate(projectId: string, title?: string): Promise<AppState>
   plannerDelete(threadId: string): Promise<AppState>

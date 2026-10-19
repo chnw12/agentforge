@@ -9,6 +9,7 @@ import { analyzeTestCoverage } from './coverage'
 import { claudeArgs, logDir } from './pipeline'
 import { parseEvent } from './parse'
 import { redact } from './redact'
+import { withSkills } from './skills'
 
 export const MIN_SLOTS = 2
 export const MAX_SLOTS = 3
@@ -145,9 +146,10 @@ async function runAgent(c: BonCtx, s: Slot, a: Active, note?: string): Promise<v
     }
     let final = ''
     const shown: string[] = []
+    const stdin = await withSkills(slotPrompt(task, task.slots?.length ?? 1, note), s.agent, settings)
     const res = await runProcess(exe, args, {
       cwd: wt,
-      stdin: slotPrompt(task, task.slots?.length ?? 1, note),
+      stdin,
       timeoutMs: settings.stageTimeoutMin * 60_000,
       onPid: track(a, s.id),
       onLine: (line, stream) => {

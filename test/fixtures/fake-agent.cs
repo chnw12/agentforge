@@ -44,7 +44,7 @@ class FakeAgent
             Thread.Sleep(ms);
             if (fail != 0) { Console.Error.WriteLine("fake failure requested"); return 1; }
             string fence = "```";
-            string text = "plan from " + agent + " turns=" + turns + " ctx=" + (prompt.Contains("<<<ITEM 1") ? "yes" : "no") + " args=" + string.Join(" ", args);
+            string text = "plan from " + agent + " turns=" + turns + " ctx=" + (prompt.Contains("<<<ITEM 1") ? "yes" : "no") + " skill=" + (prompt.Contains("SKILLTEXT-") ? "yes" : "no") + " args=" + string.Join(" ", args);
             string block;
             if (prompt.Contains("NO_PROPOSAL")) block = "";
             else if (prompt.Contains("BAD_PROPOSAL")) block = fence + "af-proposal\n{ not json\n" + fence;
