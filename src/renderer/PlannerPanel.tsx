@@ -60,7 +60,7 @@ export function PlannerPanel(p: {
     p.onSelectThread(s.planners[0]?.id ?? null)
   })
   const removeThread = () => guard(async () => {
-    if (!thread || !confirm(`계획 스레드 "${thread.title}"를 삭제합니다. 대화와 컨텍스트가 사라지며 만들어진 태스크는 그대로 남습니다.`)) return
+    if (!thread || !confirm(`계획 스레드 "${thread.title}"를 삭제합니다. 대화와 참고 자료가 사라지며 만들어진 태스크는 그대로 남습니다.`)) return
     if (await p.run(() => api().plannerDelete(thread.id))) p.onSelectThread(null)
   })
   const send = () => guard(async () => {
@@ -126,7 +126,7 @@ export function PlannerPanel(p: {
               title={ok(a) ? undefined : `${a}를 사용할 수 없습니다`} onClick={() => guard(async () => { await p.run(() => api().plannerSetOptions(thread.id, { agent: a })) })}>{AGENT_LABEL[a]}</button>
           ))}
         </div>
-        <div className="seg" role="group" aria-label="대화 방식" title="이어서 논의: 이전 대화를 매번 다시 보냅니다. 매번 새로: 컨텍스트만 보냅니다.">
+        <div className="seg" role="group" aria-label="대화 방식" title="이어서 논의: 이전 대화를 매번 다시 보냅니다. 매번 새로: 이전 결과(참고 자료)만 보냅니다.">
           {([['continue', '이어서 논의'], ['fresh', '매번 새로']] as const).map(([k, label]) => (
             <button key={k} className={'seg-btn' + (thread.conversation === k ? ' on' : '')} disabled={running} aria-pressed={thread.conversation === k}
               onClick={() => guard(async () => { await p.run(() => api().plannerSetOptions(thread.id, { conversation: k })) })}>{label}</button>
@@ -134,9 +134,9 @@ export function PlannerPanel(p: {
         </div>
       </div>
 
-      <section className="planner-ctx" aria-label="컨텍스트">
-        <div className="planner-sec-h small"><strong>컨텍스트 ({thread.contexts.length})</strong><span className="muted"> · diff는 기본 제외</span></div>
-        {thread.contexts.length === 0 && <div className="muted small">작업 결과를 붙여 넣거나, 슬롯·단계 화면의 "계획 도우미에 추가"를 누르세요.</div>}
+      <section className="planner-ctx" aria-label="이전 결과 (참고 자료)">
+        <div className="planner-sec-h small"><strong>이전 결과 · 참고 자료 ({thread.contexts.length})</strong><span className="muted"> · diff는 기본 제외</span></div>
+        {thread.contexts.length === 0 && <div className="muted small">이미 끝난 작업의 결과를 여기에 넣으세요. 직접 붙여 넣거나, 슬롯·단계 화면의 "계획 도우미에 추가"를 누르면 됩니다.</div>}
         {thread.contexts.map((c) => (
           <details key={c.id} className="ctx-item">
             <summary>
@@ -144,7 +144,7 @@ export function PlannerPanel(p: {
               <span className="muted small">{c.text.length.toLocaleString()}자</span>
               {c.truncated && <span className="tag warn">잘림</span>}
               {!!c.redacted && c.redacted > 0 && <span className="tag warn" title="비밀 정보로 보이는 문자열을 가렸습니다">가림 {c.redacted}</span>}
-              <button className="icon-btn" aria-label={`컨텍스트 제거: ${c.label}`} title="제거" onClick={(e) => { e.preventDefault(); void guard(async () => { await p.run(() => api().plannerRemoveContext(thread.id, c.id)) }) }}>✕</button>
+              <button className="icon-btn" aria-label={`참고 자료 제거: ${c.label}`} title="제거" onClick={(e) => { e.preventDefault(); void guard(async () => { await p.run(() => api().plannerRemoveContext(thread.id, c.id)) }) }}>✕</button>
             </summary>
             <pre className="ctx-text">{c.text.slice(0, 3000)}{c.text.length > 3000 ? '\n…' : ''}</pre>
             {(c.kind === 'slot' || c.kind === 'stage' || c.kind === 'task') && c.source && (
@@ -167,10 +167,10 @@ export function PlannerPanel(p: {
       </section>
 
       <section className="planner-ask" aria-label="요청">
-        <label className="planner-sec-h small" htmlFor="planner-goal"><strong>하고 싶은 일</strong></label>
+        <label className="planner-sec-h small" htmlFor="planner-goal"><strong>새로 시킬 일</strong><span className="muted"> · 계획 도우미에게 하는 설계 요청</span></label>
         <textarea
           id="planner-goal" ref={goalRef} rows={3} value={goal} maxLength={PLAN_LIMITS.goal} disabled={!project}
-          placeholder="예: 이 결과를 바탕으로 다음에 할 작업을 설계해줘 (Ctrl+Enter로 요청)"
+          placeholder="위 결과를 바탕으로 다음에 시킬 일을 적으세요. 예: 로그인 에러 처리를 설계해줘 (Ctrl+Enter로 요청)"
           onChange={(e) => setGoal(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); if (!running) void send() } }}
         />
@@ -234,7 +234,7 @@ function ProposalCard(p: { m: PlanMessage; thread: PlanThread; state: AppState; 
         {pr.modeReason && <div className="muted">{modeLabel(pr.mode)} 추천 이유: {pr.modeReason}</div>}
         {mode === 'best-of-n' && <div className="muted">슬롯: {pr.slotAgents.map((a) => AGENT_LABEL[a]).join(', ')} (새 태스크 창에서 바꿀 수 있음)</div>}
       </div>
-      <label>요청 내용<textarea rows={8} value={prompt} maxLength={PLAN_LIMITS.prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="제안 요청 내용" /></label>
+      <label>새 태스크에 들어갈 요청 내용<textarea rows={8} value={prompt} maxLength={PLAN_LIMITS.prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="제안 요청 내용" /></label>
       {pr.rationale && <details className="small"><summary>근거</summary><div>{pr.rationale}</div></details>}
       {pr.risks.length > 0 && <details className="small"><summary>위험 ({pr.risks.length})</summary><ul>{pr.risks.map((r, i) => <li key={i}>{r}</li>)}</ul></details>}
       {pr.questions.length > 0 && <details className="small" open><summary>확인할 점 ({pr.questions.length})</summary><ul>{pr.questions.map((r, i) => <li key={i}>{r}</li>)}</ul></details>}
